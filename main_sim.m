@@ -17,7 +17,7 @@
 %    噪底估计      estNoiseFloor.m     图16/16  逐距离门(校准遍)
 %    0° 校准       calib0deg.m         图18   校准检查         → cCal, calibInfo
 %    导向矢量校准  genAntCaliData.m    (无图, cCal × 理论流型) → AntCaliData, rowLut
-%    检测链(静默)  积累/CFAR/DBF       (无图, 供角反实测幅度)  → tgtCal, detCal
+%    检测链(静默)  积累/CFAR/DBF       (无图, 供角反仿真测量幅度)  → tgtCal, detCal
 %    RCS 标定      rcsCalibrate_pipe   图19   标定结果         → rcsCfg(K0)
 %   ---- 第二遍: 目标场景测量(其余目标, 图号顺延) ----
 %    射频仿真      rf_sim_core.m       图20   ADC 时域
@@ -31,12 +31,18 @@
 %    DML 超分辨    dmlRefine_pipe.m    图31/30                  → tgtOut(+第二目标)
 %    真值/对比图   targetTruthDraw.m   图33  compareAziRDraw  图34
 %    RCS           rcsCompute_pipe.m   图35   (用第一遍 rcsCfg) → tgtOut(+rcsDb)
+%    链路预算审计   snrAnaCalc(本文件局部函数)  无图, 逐目标"解析 vs 仿真测量"打印
 %  约定: 波形类参数只在 prm、维度类只在 dims 定义一次, 子函数形参接收;
 %  变量名与 参考\ 流水线保持一致。
 %  ========================================================================
 clc; close all;
 % 钩子变量(批量案例 runCases*.m / 门限标定 thrSweep_ompdml.m 注入, 平时不存在)
 clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState;
+rng(43); % 固定随机种子(照 96 修法): 种子只决定单实现统计起伏, 不改物理 —— 泄漏
+         % 路径相位/闪烁噪声/PN 实现/量化误差等每次运行完全一致, 结果可复现、
+         % 改动前后可逐位对比(换种子 = 换一次统计起伏实现, 结论不应翻转; 96 的
+         % seed_sweep 多种子诊断法同样适用)。校准缓存存有 rng 快照, 命中时恢复
+         % 后目标遍与全量跑仍完全一致。
 
 %% ---- 检测配置(仿参考 AdcAndParam.mat, 变量名与参考一致) ----
 load('SimAdcParam.mat');       % cfarCfg: 逐距离门 CFAR/峰判配置
@@ -49,7 +55,13 @@ nSamples = 1024;               % 每 chirp 实采样点数。【硬件内存上�
                                %   LPF 段注释的三选项
 nChirps  = 512/2;                % 每帧 chirp 数(多普勒 FFT 长度)【硬件内存上限, 勿改】
 
-fs = 40e6;                     % ADC 实采样率 (Hz, 2026-10 厂商确认真实为 40M; 60 为旧口径) —— 下游全部联动:
+fsAdc   = 160e6;                % 芯片 ADC 实采样率 (Hz) —— 真实芯片 160M 链; 厂商 2026-10 口径
+                               %   的"40M"= 降采样后的输出数据率, 不是 ADC 物理采样率
+chipOsr = 4;                    % [旋钮] 降采样倍数(1 | 2 | 4, 2 的幂)——主函数与射频函数都要用
+                               %   (照 96 修法上提主函数, 唯一定义处在此、经 prm 注入射频核):
+                               %   射频核用它设计数字半带链(先滤后抽, 每级 ÷2)并降采样,
+                               %   本函数用它推算真正的数据率与雷达各项指标
+fs = fsAdc/chipOsr;             % 降采样后输出数据率 (Hz) = 40M —— 下游全部联动:
                                %   Ts = nSamples/fs, 斜率 = B/Ts, 奈奎斯特 = fs/2,
                                %   Rmax = c·nSamples/(4B)(只由 nSamples 与 B 决定, 与 fs 无关)
 B  = 214e6;                % 采样窗 Ts 内扫过的带宽 (Hz); ΔR = c/2B 与 Rmax 不随 fs 变
@@ -60,7 +72,8 @@ stepDir = -1;                   % [旋钮] 步进频方向: +1 上跳频(每 chi
                                %   联动: 射频链路(f_m 序列)、步进频耦合方向(谱线 bin = gate_D −方向·gate_R)、
                                %   校准/RCS/案例生成的 dopC 公式全部经 prm 自动跟随
 fStart = 76.6e9;               % 扫频起始频率 (Hz)
-prm = struct('fs', fs, 'B', B, 'Ts', nSamples/fs, 'Tc', Tc, 'cr', cr, 'fStart', fStart, 'stepDir', stepDir);
+prm = struct('fs', fs, 'fsAdc', fsAdc, 'chipOsr', chipOsr, 'B', B, 'Ts', nSamples/fs, ...
+             'Tc', Tc, 'cr', cr, 'fStart', fStart, 'stepDir', stepDir);
 c0 = physconst('lightspeed');
 fCenter = fStart + (1+cr)*B/2;   % 全帧中心频率(扫频+步进频全跨度中点)
 lambda = c0 / fCenter;                        % 波长(算好传入, 子函数不自算)
@@ -108,6 +121,14 @@ dims = struct('rngPts', rngPts, 'nV', nV, 'dopBinNum', dopBinNum, ...
               'aziFftLen', aziFftLen, 'nLongRow', nLongRow, ...
               'rngUse', nV - 1, 'B', B, ...
               'DeltaR', c0/(2*B), 'Vres', c0/(2*fCenter*Tc*nChirps));
+
+% ---- RAM 核查行(照 96 修法): 全 RX 帧数据量, 每次运行打印盯住 ----
+% 口径: 降采样后 nSamples×nChirps×nRX×2B(int16/样点) —— 8 路 ADC 同时采样必须全落
+% 芯片 RAM(用户口径), 即上方 nSamples/nChirps 两行【硬件内存上限, 勿改】的核定依据;
+% 改点数/chirp 数前先看这行是否还在预算内。
+ramKB = nSamples*nChirps*size(antenna_r,2)*2/1024;    % 全 RX 帧数据量 (KB)
+fprintf('RAM 核查        : 全RX帧 %d样点×%dchirp×%dRX×2B(int16) = %.0f KB = %.2f MB —— nSamples/nChirps【硬件内存上限】核定口径\n', ...
+        nSamples, nChirps, size(antenna_r,2), ramKB, ramKB/1024);
 
 % ---- cfarCfg 逐距离门表对齐当前量程(SimAdcParam.mat 按 512 距离门配置) ----
 % 表长与 rngUse 不一致时: 超长裁前 rngUse 行(量程缩小时取前段配置);
@@ -207,7 +228,7 @@ fprintf('场景拆分       : 校准遍 1 目标(角反), 目标遍 %d 目标\n'
 
 %% ================== 第一遍测量: 校准(仅角反 → 各项校准数据) ==================
 % 顺序同实际工程: 校准场只放角反跑射频 → RD 谱/噪底(校准遍自测量) → 0°校准
-% (cCal) → 导向矢量校准表(AntCaliData) → 角反点云检测(RCS 标定要角反实测
+% (cCal) → 导向矢量校准表(AntCaliData) → 角反点云检测(RCS 标定要角反仿真测量
 % 幅度, 不画积累/检测/DBF 图) → RCS 标定常数(rcsCfg)。射频开关/旋钮全在
 % rf_sim_core.m 顶部, 与第二遍共用同一份 —— 改一处两遍同时生效。
 fprintf('\n========== 第一遍测量: 校准(仅角反) ==========\n');
@@ -258,7 +279,9 @@ if ~cacheOk
     filtChain = struct('chipOsr', rfInfoCal.chipOsr, 'fsAdc', rfInfoCal.fsAdc, ...
                        'nDStg', rfInfoCal.nDStg, 'B_noise', rfInfoCal.B_noise, ...
                        'lpfFc', rfInfoCal.lpfFc, 'lpfOrder', rfInfoCal.lpfOrder, ...
-                       'hbFc', rfInfoCal.hbFc, 'hbR', rfInfoCal.hbR, 'hbH', {rfInfoCal.hbH});
+                       'hbFc', rfInfoCal.hbFc, 'hbR', rfInfoCal.hbR, 'hbH', {rfInfoCal.hbH}, ...
+                       'hbCompOn', rfInfoCal.hbCompOn, 'compFreezeV', rfInfoCal.compFreezeV, ...
+                       'bComp', {rfInfoCal.bComp});
     S = struct('adcCal', adcCal, 'targetsCal', targetsCal, 'sig', calSig, ...
                'rngState', rng, 'savedAt', datetime('now'), 'filtChain', filtChain);   % rng 快照供缓存命中时恢复
     save(calCacheFile, '-struct', 'S');
@@ -288,7 +311,7 @@ fprintf('DOA 俯仰网格    : ±%d° (无模糊 ±%.1f°, 俯仰行间距 %.3f 
         floor(eleUa), eleUa, dzRow*1e3);
 [AntCaliData, rowLut] = genAntCaliData(A_manifold, FFT_d0, lambda, cCal, [-75 75 1], eleRange);
 
-% ---- 校准遍检测链(积累→CFAR→DBF, 为 RCS 标定提供角反实测幅度; 静默不画图) ----
+% ---- 校准遍检测链(积累→CFAR→DBF, 为 RCS 标定提供角反仿真测量幅度; 静默不画图) ----
 accumCal = jointAccum_pipe(fftCal, ddmShift, cCal, A_manifold, FFT_d0, dims, false);
 [~, detCal, tgtCal] = targetDetect_pipe(noiseCal, accumCal, cfarCfg, dims, false);
 [tgtCal, detCal]    = doaEstimate_pipe(detCal, tgtCal, AntCaliData, rowLut, lambda, dims, false);
@@ -314,7 +337,7 @@ fftCfg  = win2dfft(adcRawData, 'Hanning');
 [fftCfg, noiseCfg] = estNoiseFloor(fftCfg);
 
 %% ---- RX 非相参积累(8RX 线性功率平均; 图25, DDMA 选阶之前的初查图) ----
-% 实测排查惯例: 先不做解模糊选阶, 直接把 8 个 RX 合成一张 RD 图看数据"活不活"
+% 实测排查惯例(实机排障流程, 仿真沿用): 先不做解模糊选阶, 直接把 8 个 RX 合成一张 RD 图看数据"活不活"
 % (目标在不在/泄漏形状/异常条纹), 确认后再进选阶与相参积累。
 % 累加方式与 TXRX 非相参一致: 线性域功率平均后转 dB(非 dB 域平均)。
 figRxNc = rxNonCoh_pipe(fftCfg, dims);
@@ -392,6 +415,51 @@ figCmpAzi = compareAziRDraw(targets, dims, stageDbf, stageOmp, stageDml);
 %% ---- RCS 估计(逐点算 RCS 写回点云; 图35; 标定常数 rcsCfg 来自第一遍校准) ----
 [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, prm, targets, rcsCfg);
 
+%% ---- 链路预算审计(解析 vs 仿真测量; snrAnaCalc 局部函数; 仿真测量口径 = 点云 nonCohSNR) ----
+% 统一物理口径: SNR = Pr − 10lg(kT·NF) + 10lg(Ts) + 10lg(nChirps) + winStat − 3.0×(实采)
+%               + 滤形 − PLL跟踪线损失 − 自扩散抬底(两项均随 R² 增长, 见 snrAnaCalc)。
+% 仿真测量口径 = 点云 tgtOut.nonCohSNR —— 【TXRX 非相参积累】图(DDM 选阶后 8TX 对齐 + 8RX
+% 功率平均, 64 通道全非相参)的峰单元 / 逐距离门中位噪底 floorPow, 与检测链和点云下游
+% 看到的同一数字。功率平均不改均值 SNR(TX/RX 侧同理) → 解析式与单线同形, 仅 winStat
+% 随度量口径重标定。对比用目标临时改近改大(用户口径, 防弱线波动); 换回弱目标后
+% 单实现散布 ±2~3 dB 属口径内正常(种子已固定, 可复现)。
+winStat95 = -1.7;              % [口径标定] 窗与统计净项(见 snrAnaCalc 注释): 2026-10-29 多种子
+                               % 标定(种子 43/1/2/3/4; 210m/20dBsm 间隙均值 −1.73±1.3,
+                               % 300m/10dBsm −1.70±0.5 —— 两目标一致到 0.03 dB, PLL 两项
+                               % 显式化后 winStat 不再随目标远近/强弱漂移)。构成: 双维汉宁
+                               % 峰值损耗/行中位统计 + TX_A/RX_A 通道幅度差均值(≈−0.9) +
+                               % 跨 bin 汉宁跨瓣 + PN/非线性肩部小量(随目标分数 bin 浮动)
+for k = 1:numel(targets)
+    Rm  = targets(k).gate_R * dims.DeltaR;        % 目标距离 (m)
+    an  = snrAnaCalc(rfInfo, prm, Rm, targets(k).rcsDb, nChirps, size(antenna_r,2), ...
+                     isreal(adcRawData), winStat95);
+    % 期望单元(检测确认点应落处): 距离 bin + 解模糊后真多普勒 bin(选阶把谱线搬回真
+    % bin, 含步进频耦合, 公式与 OMP/DML 种子同源)
+    dCk = mod(targets(k).gate_D + prm.stepDir*prm.cr*prm.B/(nChirps-1) ...
+              * (2*targets(k).gate_R*c0/(2*prm.B))/c0 * nChirps, nChirps);
+    rEk = round(targets(k).gate_R) + 1;           % 期望距离 bin(1 起)
+    dEk = mod(round(dCk), nChirps) + 1;           % 期望多普勒 bin(1 起)
+    % 点云匹配: 确认点中与期望单元最近者(距离差 + 循环多普勒差/子带宽 加权); 弱目标
+    % 亚 bin 偏移可能落在 ±1 bin, 容限 5
+    if isempty(tgtOut)
+        fprintf('链路预算审计   : 点云为空 —— 无确认目标, 跳过\n');
+        break;
+    end
+    dAbs = abs([tgtOut.dopplerIdx] - dEk);
+    dCir = min(dAbs, nChirps - dAbs);             % 多普勒循环距离(子带数单位见加权)
+    distK = abs([tgtOut.rangIdx] - rEk) + dCir/dims.subBins;
+    [mnD, tK] = min(distK);
+    if mnD > 5
+        fprintf('链路预算审计   : 目标%d @%.0f m —— 点云无匹配确认点(最近代价 %.1f), 跳过\n', k, Rm, mnD);
+        continue;
+    end
+    meas = tgtOut(tK).nonCohSNR;                  % 仿真测量值 = 点云 nonCohSNR(TXRX 非相参积累口径)
+    fprintf('链路预算审计   : 目标%d @%.0f m: Pr %.1f − PSD %.1f + 10lgTs %.1f + 多普勒 %.1f + 窗统计 %.1f − 实采 %.1f + 滤形 %.1f − PLL线损 %.1f − 自扩散抬底 %.1f => 解析 %.1f dB | 仿真值(点云 nonCohSNR @bin R%d/D%d) %.1f dB, 差 %+.1f dB\n', ...
+            k, Rm, an.Pr_dBm, an.psd_dBmHz, an.tTerm, an.dTerm, an.winStat, an.sampP, an.filtG, ...
+            an.pllTerm, an.selfFloor, an.SNR_dB, tgtOut(tK).rangIdx-1, tgtOut(tK).dopplerIdx-1, ...
+            meas, meas - an.SNR_dB);
+end
+
 %% ---- 后续模块插入位置: 点云/跟踪(吃 tgtOut) ----
 
 
@@ -456,3 +524,65 @@ for kk = 1:size(figList, 1)
 end
 fprintf('图片已保存到 %s：%s（原尺寸渲染, PPT默认宽 %g cm, 覆盖上次, 耗时 %.1f s）\n', ...
         saveDir, strjoin(figList(:, 2), ' / '), outW_cm, toc(tExp));
+
+%% ======================== 局部函数 ========================
+function an = snrAnaCalc(rfInfo, prm, Rm, rcsDb, nCoh, nRXavg, isRealSamp, winStat, filtG)
+%SNRANACALC 谱线 SNR 解析计算(工程近似, 统一物理口径——95/96/97/97_IQ 各工程同一子函数)
+%   SNR = Pr − 10lg(kT·NF) + 10lg(Ts) + 10lg(nCoh) + winStat − 3.0×(实采) + 滤形
+%         − PLL跟踪线损失 − 自扩散抬底
+%   各项: 雷达方程接收功率(TXRX 非相参积累口径, Pt = 每 TX 功率——8TX 对齐 + 8RX 功率
+%   平均均不改均值 SNR, 解析与单线同式) / 噪声 PSD(仿真同温同 NF) / 快时间相干积分(=
+%   距离 bin 宽倒数, 采样窗 Ts) / 慢时间 nCoh chirp 相干(DDMA 码移不损失) / 窗与统计
+%   净项(随度量口径标定, 见下) / 实采样镜像劈半罚 / 滤形(缺省 = LPF×HPF×数字半带×
+%   带边均衡 @目标差拍) / PLL 两项(见下)。
+%   【PLL 跟踪两项(2026-10-29 显式化, 勿再藏进 winStat)】逐 chirp iid 随机相位 φ_n
+%   (扫频跟踪 σδf = 系数×B/Ts 与跳频误差 σf, 残余相位 = 2π·σ·τ, τ=2R/c)把谱线功率
+%   按 e^{−σφ²} 劈分, 后果有两个、都随 R² 增长:
+%     ① 线相干损失 = 10lg(e^{−σφ²}) = −4.343·σφ² (300m σφ≈1.05 rad → −4.8 dB);
+%     ② 自扩散抬底: 劈出的 (1−e^{−σφ²}) 份额被 DDM 8 根码线平铺到整个多普勒行
+%        (逐 chirp iid → 平铺), 抬高行中位噪底 = 10lg(1 + 8·(1−e^{−σφ²})·S0/nCoh),
+%        S0 = 无 PLL 项线 SNR(线性) —— 弱目标(S0·8/nCoh≪1)时→0, 强目标显著
+%        (20dBsm@210m 仿真观测抬 +5.4 dB), 即强目标动态范围天花板: SNR → nCoh/(8(1−e^{−σφ²}))。
+%   两项合成仿真测量 SNR = S0·e^{−σφ²}/(1 + 8(1−e^{−σφ²})·S0/nCoh), 2026-10-29 对
+%   210m/20dBsm 与 300m/10dBsm 两目标验证一致(±0.5 dB)。
+%   【winStat 构成(非物理增益, 勿按积累解读)】双维汉宁峰值损耗与噪底带宽收窄之净 +
+%   噪底中位统计 + TX_A/RX_A 通道幅度差均值(≈−0.9, 本工程特有) + 跨 bin 汉宁跨瓣 +
+%   PN/非线性肩部等小量; 【随度量口径标定】: 97 三芯片(1T2R/局部行中位) = −6.0;
+%   96(4RX 功率平均/全帧/局部行中位) = −3.0; 95 DDMA(点云 nonCohSNR 口径) = winStat95
+%   (见主流程标定注释)。两缺省(不传)分别取 −6.0 与 rfInfo.filtGainAtR(Rm)。
+%   【rxTerm = 0】RX 功率平均不增加(平均)SNR —— 收益是噪声更平均、峰值更低 → 门限
+%   可降; "非相参增益"是门限收益的近似等效(饱和型), 非真实 SNR 提升(用户结论
+%   2026-10-28; 曾误写 +10log(nRX) 高估 10lg(nRX) dB, 已修)。
+    if nargin < 8 || isempty(winStat), winStat = -6.0; end
+    if nargin < 9, filtG = []; end
+    cL    = physconst('lightspeed');
+    tauR  = 2*Rm/cL;                                             % 双程时延 (s)
+    sig2  = 0;                                                   % 逐 chirp iid 相位方差累积
+    if isfield(rfInfo, 'pllTrackOn') && rfInfo.pllTrackOn
+        sig2 = sig2 + (2*pi*rfInfo.pnTrackCoef*(prm.B/prm.Ts)*tauR).^2;
+    end
+    if isfield(rfInfo, 'hopErrOn') && rfInfo.hopErrOn
+        sig2 = sig2 + (2*pi*rfInfo.hopErrHz*tauR).^2;
+    end
+    rcs   = 10^(rcsDb/10);
+    Pr_W  = 10^(rfInfo.Pt_dBm/10)*1e-3 * 10^(rfInfo.Gt_dBi/10) * 10^(rfInfo.Gr_dBi/10) ...
+            * rfInfo.lambda^2 * rcs / ((4*pi)^3 * Rm^4);        % 远场单站雷达方程(单 TX)
+    an.Pr_dBm    = 10*log10(Pr_W*1e3);                           % 接收功率 (dBm)
+    an.psd_dBmHz = 10*log10(rfInfo.Pn0_W_Hz*1e3);                % 噪声 PSD (dBm/Hz) = 10lg(kT·NF)
+    an.tTerm     = 10*log10(prm.Ts);                             % 快时间相干积分(= bin 宽倒数)
+    an.dTerm     = 10*log10(nCoh);                               % 慢时间相干(nCoh chirp)
+    an.rxTerm    = 0;                                            % RX 功率平均不计增益(见上)
+    an.winStat   = winStat;                                      % 窗与统计净项(口径标定值)
+    an.sampP     = 3.0*double(isRealSamp);                       % 实采镜像劈半罚(复采 0)
+    if isempty(filtG)
+        an.filtG = rfInfo.filtGainAtR(Rm);                       % LPF×HPF×数字半带×均衡 @目标 fb
+    else
+        an.filtG = filtG;                                        % 外部口径(如 ADC 片噪份额)
+    end
+    nTxL  = 1;  if isfield(rfInfo, 'nTX'), nTxL = rfInfo.nTX; end    % 平铺行内的码线数
+    an.pllTerm   = -4.343*sig2;                                  % ① PLL 线相干损失(dB)
+    s0Lin        = 10^((an.Pr_dBm - an.psd_dBmHz + an.tTerm + an.dTerm ...
+                       + an.rxTerm + an.winStat - an.sampP + an.filtG)/10);  % 无 PLL 项线 SNR
+    an.selfFloor = 10*log10(1 + nTxL*(1 - exp(-sig2))*s0Lin/nCoh);   % ② 自扩散抬底(dB)
+    an.SNR_dB    = 10*log10(s0Lin*exp(-sig2)) - an.selfFloor;
+end

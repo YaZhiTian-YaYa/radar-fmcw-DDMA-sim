@@ -42,6 +42,27 @@ function figFilt = filtChainDraw(fc, fs, fs2)
     plot(fAc/1e6, 20*log10(casc + eps), 'k', 'LineWidth', 1.8);
     legTxt{end+1} = '级联总响应(数据实际看到)'; %#ok<AGROW>
 
+    % 带边噪声均衡 + 噪底实际形状(照 96 修法; 均衡曲线为绿, 噪底形状为青虚线)
+    % 噪底形状 = 白噪经链路 + 两级抽取【折叠到输出 bin 的合计幅度】× 均衡 —— 仿真口径,
+    % 与芯片实测噪底-距离剖面对照, 均衡生效时应全带平(未均衡时末级过渡带下垂 ~2dB)
+    if isfield(fc, 'bComp') && numel(fc.bComp) > 1
+        gCe = abs(freqz(fc.bComp, 1, fAc, fs));
+        plot(fAc(fAc <= fs/2)/1e6, 20*log10(gCe(fAc <= fs/2) + eps), 'g', 'LineWidth', 1.2);
+        legTxt{end+1} = sprintf('带边噪声均衡 %d 抽头 @输出域(冻结 v=%.2f)', ...
+                                numel(fc.bComp), fc.compFreezeV); %#ok<AGROW>
+        plot(fAc/1e6, 20*log10(casc .* gCe + eps), 'k--', 'LineWidth', 1.2);
+        legTxt{end+1} = '均衡后信号响应(级联×均衡)'; %#ok<AGROW>
+        gCh = @(fb) gA(fb) .* arrayfun(@(fq) prod(arrayfun(@(sI) hbMagOf(sI, fq), 1:fc.nDStg)), fb);
+        vG = linspace(0, 1, 513).';  fG = vG*fs/2;
+        Hp = zeros(size(fG));
+        for kA = 0:fc.chipOsr-1
+            Hp = Hp + gCh(kA*fs + fG).^2 + gCh((kA+1)*fs - fG).^2;
+        end
+        noiseResp = sqrt(Hp) .* abs(freqz(fc.bComp, 1, fG, fs));
+        plot(fG(2:end)/1e6, 20*log10(noiseResp(2:end) + eps), 'c-', 'LineWidth', 1.8);
+        legTxt{end+1} = '噪底实际形状(折叠对合计×均衡, 应平——对齐芯片实测)'; %#ok<AGROW>
+    end
+
     xline(fs/2/1e6, 'r--', '信号带边 fs/2', 'LabelOrientation', 'horizontal');
     xline(fs/1e6, 'k:', 'fs', 'LabelOrientation', 'horizontal');
     if fc.chipOsr > 1
@@ -50,7 +71,11 @@ function figFilt = filtChainDraw(fc, fs, fs2)
     grid on; xlim([0, fs2/2/1e6]); ylim([-100, 2]);
     xlabel('频率 (MHz)'); ylabel('|H| (dB)');
     legend(legTxt, 'Location', 'southeast');   % 右下角: 不挡曲线主体
-    title(sprintf(['两段式滤波链 chipOsr=%d: 模拟@%.0fM + %d 级半带, ' ...
-                   '输出 NEB=%.1fM, 末级悬崖 @%gM'], ...
-                  fc.chipOsr, fc.lpfFc/1e6, fc.nDStg, fc.B_noise/1e6, hbFc(end)/1e6));
+    titleTxt = sprintf(['两段式滤波链 chipOsr=%d: 模拟@%.0fM + %d 级半带, ' ...
+                        '输出 NEB=%.1fM, 末级悬崖 @%gM'], ...
+                       fc.chipOsr, fc.lpfFc/1e6, fc.nDStg, fc.B_noise/1e6, hbFc(end)/1e6);
+    if isfield(fc, 'hbCompOn') && fc.hbCompOn
+        titleTxt = [titleTxt, sprintf(', 带边噪声均衡 %d 抽头', numel(fc.bComp))];
+    end
+    title(titleTxt);
 end

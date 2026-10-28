@@ -38,12 +38,12 @@ if nargin < 5 || isempty(drawFigs), drawFigs = true; end   % 默认画图
 
 
     rngBinTotal = dims.rngUse;      % 距离bin总数(参与检测)
-    dopSubNum = dims.subBins;         % 多普勒子带数(每组32个bin)
+    dopSubNum = dims.subBins;         % 多普勒子带数(每组 subBins=dopBinNum/grpTotal=16 个bin)
     fftLen = dims.aziFftLen;           % 方位FFT长度(此处未直接使用)
     maxTgtNum = 4000;       % 单帧最大目标数
 
 
-    peakPowMap = zeros(dims.rngUse, dims.dopBinNum);          % 相参方位峰功率图(512距离×512多普勒)
+    peakPowMap = zeros(dims.rngUse, dims.dopBinNum);          % 相参方位峰功率图(rngUse距离×dopBinNum多普勒)
     peakPosMap = zeros(dims.rngUse, dims.dopBinNum);          % 相参方位峰位置图
     detCfg.detFlagMap = zeros(dims.rngUse, dims.dopBinNum);   % CFAR粗检标记图
     ratioBuf = [];                          % 过检单元的CFAR比值收集缓存
@@ -59,8 +59,8 @@ if nargin < 5 || isempty(drawFigs), drawFigs = true; end   % 默认画图
         detCfg.detFlagMapCoarse = detCfg.detFlagMap;        % 【新增】粗检标记图副本(检测三子图第1张用)
         cohDetMap = peakPowRow > (noiseCfg.floorPow.*detCfg.cfarCoarseList);   % (计算后未使用)
 
-        % DACFAR输出的是32个多普勒子带的结果,
-        % 按各单元DDM阶数展开回完整512个多普勒bin: dopBin = 子带 + (阶数-1)*32
+        % DACFAR输出的是 subBins(=16) 个多普勒子带的结果,
+        % 按各单元DDM阶数展开回完整 dopBinNum(=256) 个多普勒bin: dopBin = 子带 + (阶数-1)*subBins
         for rBin = 1:dacfarRngCnt
             dopBin = (1:dopSubNum) + (accumCfg.ddmOrdMap(rBin, :) - 1) * dopSubNum;
             peakPowMap(rBin, dopBin) = peakPowRow(rBin, :);
@@ -83,7 +83,7 @@ if nargin < 5 || isempty(drawFigs), drawFigs = true; end   % 默认画图
     %% ---------- 第二步: 峰值状态精判(抑制CFAR漏出的非真实峰) ----------
     % 对每个CFAR过检单元, 检查其在相参谱(peakPowMap)与非相参谱(ncPwrMap)上
     % 是否构成二维局部峰, 逐距离门按配置模式pkModeTab综合判定
-    ncPwrMap = accumCfg.nonCohMap;    % 非相参积累功率图 [512距离 × 32子带]
+    ncPwrMap = accumCfg.nonCohMap;    % TXRX 非相参积累功率图 [rngUse距离 × subBins(=16)子带]
     tgtCnt = 0;
     detCfg.outBufMap = zeros(size(detCfg.detFlagMap));
     detCfg.doaChanIn = [];            % 测角用通道快照收集(每目标一行)

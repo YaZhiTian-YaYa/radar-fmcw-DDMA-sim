@@ -1,6 +1,6 @@
 function [nonCohImage, nonCohOrder] = calNonOrder_pipe(imageData, ddmList, ddmNum)
 %CALNONORDER_PIPE DDM-MIMO速度解模糊: 逐阶对齐跨组平均, 选积累功率最大的阶
-%   输入: imageData -- [512距离 × 32子带 × 16组] 功率图
+%   输入: imageData -- [rngUse距离 × subBins(=16)子带 × grpTotal(=16)组] 功率图
 %         ddmList   -- 8个TX的DDM多普勒频移(单位: 组)
 %         ddmNum    -- 候选阶数(=组数16, 即速度模糊周期)
 %   输出: nonCohImage -- 各单元16个候选阶中的最大积累功率

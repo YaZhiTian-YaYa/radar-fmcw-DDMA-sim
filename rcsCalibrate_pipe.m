@@ -55,7 +55,7 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
     floorDb = 10*log10(noiseCfg.floorPow(:) + eps);  % 逐门噪底 (dB)
     flatDb  = median(floorDb(round(0.3*gTot) : round(0.8*gTot)));
     % 拟合段: 噪底明显低于平坦段(滤形可见)且热噪主导(避开近直流泄漏抬底段)的过渡带
-    shapeMeas = floorDb - flatDb;                    % 实测滤形 (dB, ≤0)
+    shapeMeas = floorDb - flatDb;                    % 仿真测量滤形 (dB, ≤0)
     gBin = (1:gTot).' - 1;                           % 0 起距离 bin(∝ 差拍频率)
     fitMask = shapeMeas < -0.5 & shapeMeas > -35 & gBin >= 8;   % 干净过渡段(门≥9 且形状可见)
     shapeAt = @(gq) zeros(size(gq));  fitOk = false; fitRms = NaN;
@@ -108,7 +108,7 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
     fprintf('RCS 角反标定   : 角反 RD(%d,%d) 布设 R=%.2f m | SNR %.1f dB (幅度 %.1f − 噪底参考 %.1f) | 真值 %.0f dBsm | K0 = %.1f dB\n', ...
         rcsCfg.corner.RD(1), rcsCfg.corner.RD(2), Rcal, snrCalDb, aBest, floorCalDb, sigCalDb, K0);
     if fitOk
-        fprintf('RCS 噪底滤形   : 平坦段 %.1f dB, 过渡段拟合 %d 点(RMS %.2f dB), 外推角反门(%d) 滤形 %+.1f dB(实测本门噪底 %.1f 含泄漏抬底, 不用)\n', ...
+        fprintf('RCS 噪底滤形   : 平坦段 %.1f dB, 过渡段拟合 %d 点(RMS %.2f dB), 外推角反门(%d) 滤形 %+.1f dB(本门仿真噪底 %.1f 含泄漏抬底, 不用)\n', ...
             flatDb, nnz(useM), fitRms, rGate, shapeAt(rGate), rcsCfg.corner.floorRawDb);
     end
     fprintf('RCS 口径       : SNR 比值法(通带目标零补偿; 角反门噪底按噪声曲线拟合滤形重建, 不用滤波器设计)\n');
@@ -116,8 +116,8 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
         calibInfo.RfarField, calibInfo.RfarField);
 
     % ---------- 标定结果图(图19: 噪底曲线 + 滤形拟合 + 角反标定点, 1×2) ----------
-    % 左: 逐距离门噪底(实测) + 平坦段电平 + 角反门两个参考点(实测本门 vs 重建);
-    % 右: 拟合段滤形(实测点 vs 两级高通模型) —— RCS 标定方法学的证据图。
+    % 左: 逐距离门噪底(仿真测量) + 平坦段电平 + 角反门两个参考点(本门仿真值 vs 重建);
+    % 右: 拟合段滤形(仿真测量点 vs 两级高通模型) —— RCS 标定方法学的证据图。
     screenSize = get(0, 'ScreenSize');
     figW = screenSize(3) * 0.98;  figH = screenSize(4) * 0.62;
     figPos = [(screenSize(3)-figW)/2, (screenSize(4)-figH)/2, figW, figH];
@@ -130,8 +130,8 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
     plot(rGate-1, rcsCfg.corner.floorRawDb, 'rx', 'MarkerSize', 11, 'LineWidth', 2);
     plot(rGate-1, floorCalDb, 'r*', 'MarkerSize', 11);
     grid on; xlabel('距离 bin (0 起)'); ylabel('噪底功率 (dB)');
-    legend({'逐门噪底(实测)', sprintf('平坦段 %.1f dB', flatDb), ...
-            '角反门实测(含泄漏抬底)', '角反门重建参考'}, 'Location', 'best');
+    legend({'逐门噪底(仿真测量)', sprintf('平坦段 %.1f dB', flatDb), ...
+            '角反门仿真值(含泄漏抬底)', '角反门重建参考'}, 'Location', 'best');
     title('逐距离门噪底与角反门参考');
 
     nexttile;   % 右: 拟合滤形
@@ -139,9 +139,9 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
     if fitOk
         plot(gBin, mdl(th, gBin), 'r-', 'LineWidth', 1.2);
         plot(rGate-1, shapeAt(rGate), 'r*', 'MarkerSize', 11);
-        legTxt = {'拟合段实测滤形', '两级高通模型(拟合)', '角反门外推点'};
+        legTxt = {'拟合段仿真滤形', '两级高通模型(拟合)', '角反门外推点'};
     else
-        legTxt = {'拟合段实测滤形(点数不足, 未拟合)'};
+        legTxt = {'拟合段仿真滤形(点数不足, 未拟合)'};
     end
     xline(rGate-1, 'k--');
     grid on; xlabel('距离 bin (0 起)'); ylabel('相对平坦段 (dB)');

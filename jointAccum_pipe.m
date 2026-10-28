@@ -7,7 +7,7 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0
 %    相参积累用全部 64 个虚拟阵元(方位维, 不考虑俯仰: 车载俯仰范围很小,
 %    即便有俯仰误差, 64 元效果也优于只用单行 30 元, 更优于非相参积累)。)
 %   accumCfg.nonCohMap / ddmOrdMap 由非相参积累给出, 其余为相参积累输出
-%   输出: accumCfg.aziFftSpec -- 方位维FFT谱 [128方位 × 512距离 × 32子带]
+%   输出: accumCfg.aziFftSpec -- 方位维FFT谱 [128方位 × rngUse距离 × subBins(=16)子带]
 %         accumCfg.cohPeakPow / cohPeakPos -- 各单元方位谱峰值功率/位置
 %         accumCfg.chanSnapshot -- 各单元64通道复数快照(供测角)
 %         accumCfg.figAccum -- 积累图句柄(不画图时为空)
@@ -59,7 +59,7 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0
 
     %% 第三步: 绘图(一张大图 2×4: 上排非相参 / 下排相参, 各 4 个视角的 3D 曲面)
     % 视角依次参考 RD 3D 图(RX4/RX3/RX1/RX2 的视角), 免旋转直接观察;
-    % 速度维坐标显示整个速度带(0~511 bin)——数据只占 32 个子带位置,
+    % 速度维坐标显示整个速度带(0~dopBinNum−1 bin)——数据只占 subBins(=16) 个子带位置,
     % 一眼即可看出速度维元素不满(图是按子带画的)。
     accumCfg.figAccum = [];                     % 不画图时句柄为空(figList 自动跳过)
     if drawFigs
@@ -68,7 +68,7 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0
     figPos = [(screenSize(3)-figW)/2, (screenSize(4)-figH)/2, figW, figH];
     viewList = [0 0; 45 45; 90 0; 0 90];        % 依次 = RD3D 图中 RX4/RX3/RX1/RX2 的视角
     viewName = {'视角1', '视角2', '视角3', '视角4'};
-    nDb = 10*log10(accumCfg.nonCohMap);          % [512距离 × 32子带] dB
+    nDb = 10*log10(accumCfg.nonCohMap);          % [rngUse距离 × subBins(=16)子带] dB
     cDb = 10*log10(accumCfg.cohPeakPow);
     [dopGrid, rngGrid] = meshgrid(0:dims.subBins-1, 0:dims.rngUse-1);  % 子带位置(0基), xlim 显示全带; 距离 0 基(与 RD 图/gate_R 一致)
     floorN = median(nDb(:));
@@ -96,6 +96,6 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0
         xlabel('速度 bin(全带 0~511)'); ylabel('距离 bin'); zlabel('功率 (dB)');
         grid on;
     end
-    sgtitle('积累图(上排: 非相参 8RX功率平均·DDM选阶 | 下排: 相参 64元方位FFT·0°校准)');
+    sgtitle('积累图(上排: TXRX非相参 8TX对齐+8RX功率平均·DDM选阶 | 下排: TXRX相参 64元方位FFT·0°校准)');
     end                                             % if drawFigs
 end

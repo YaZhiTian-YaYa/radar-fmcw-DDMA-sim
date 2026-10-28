@@ -70,9 +70,9 @@ function [adcRawData, rfInfo] = rf_sim_core(nSamples, nChirps, TX_A, RX_A, anten
 %      偏移相同，与距离无关）；
 %   9) 零频泄漏（enableLeakDC 独立开关）：片内直通 τ=0 → 差拍=0 → bin0 出
 %      码梳；bin0 行慢时间序列为实数 → 实采样多普勒共轭镜像（默认关）；
-%  10) 近距离非 0 bin 泄漏多径族（enableLeakNear 统一开关）：leakPaths 每行
-%      一条非零延迟路径 [bin, 电平]（地弹+屏蔽腔多次反射 / 环境残余反射 /
-%      天线互耦），差拍落在各自距离 bin → 近距码梳（复数行→无实采样镜像）；
+%  10) 近距泄漏多径族（enableLeakNear 统一开关）：leakPaths 每行一条非零延迟
+%      路径 [差拍频率Hz, 电平]（地弹+屏蔽腔多次反射 / 环境残余反射 / 天线互耦），
+%      差拍 = 斜率×路径延迟 → 落在各自距离 bin → 近距码梳（复数行→无实采样镜像）；
 %      leakRes_dB = 全部泄漏路径的全局电平修正（近距码梳高度直接控制量）；
 %  11) TX-RX 收发隔离泄漏【总开关】（enableLeakage）：泄漏载波携带 DDMA 与
 %      每路径固定相位；隔离度矩阵 isoMat 决定各路径幅度（零频/近距多径块
@@ -136,36 +136,48 @@ hpfFloor_dB = -60;         % [旋钮] 泄漏旁路耦合 (dB)：部分泄漏绕�
 %   样点，破坏分段线性卷积 → 段尾环绕伪影）
 
 % ---------- 4. IF 抗混叠低通（片上连续时间有源滤波器: Gm-C / active-RC, 巴特沃斯类） ----------
-% 【设计约束链, 改参数前必读】nSamples=1024/nChirps=512 是硬件内存上限 →
+% 【设计约束链, 改参数前必读】nSamples=1024/nChirps=256 是硬件内存上限 →
 %   fb(350m)/奈奎斯特 = 350/(Ns·c/4B) = 97.5%(与 fs 无关, 不可绕过)——通带边与
-%   混叠边只隔 2.5%, "带内缓降 + 带边强抑制"在同一滤波器里不可兼得。三选一:
+%   混叠边只隔 2.5%, 单级模拟滤波器"带内缓降 + 带边强抑制"不可兼得, 三选一:
 %   A 牺牲距离分辨率: B 降到 ~120 MHz(ΔR 1.25 m) → 350m 只占奈奎斯特 55%,
 %     4 阶即可"缓降+抑制"(350m −0.3 dB / 奈奎斯特 −12 dB / 45M −25 dB);
-%   B 保 ΔR=0.70 m(当前, B=214 MHz 不动): fc 上移让带内缓降, 代价是带边抑制
-%     弱(奈奎斯特仅 −3 dB): 370~400 m 强目标以 −4~−7 dB 鬼影折回 300~350 m 段
-%     (鬼影多普勒符号翻转, 可靠速度-距离一致性甄别);
+%   B 保 ΔR=0.70 m(B=214 MHz 不动): fc 上移让带内缓降, 代价是带边抑制弱
+%     (370~400 m 强目标鬼影折回 300~350 m 段, 多普勒符号翻转可甄别);
 %   C 对齐实测: 若目的就是复现真实芯片滤波器, 不设计——拿实测噪底曲线的
 %     droop 形状反推 lpfOrder/lpfFc(与 ADC 噪声标定同思路)。
-% 当前取 B(用户要求带内缓降且 ΔR/内存不动): 5 阶 @30 MHz ——
-%   @25.1M(300m) −0.7 | @29.25M(350m) −2.5(缓降) | @30M(奈奎斯特) −3.0(弱!)
-%   | @35M −7.5 | @45M −17.7 | @60M −30 dB(带外渐进有效)。NEB ≈ 1.02×fc = 30.5M。
+% 【两段式已解耦该矛盾】(见下方两段式块): 模拟级宽通带只管镜像区、带内零形状,
+%   数字半带悬崖定义信号带边 —— 缓降与强抑制兼得。当前响应(2026-10-28 复算, 含
+%   带边噪声均衡 enableHbComp): 信号 @16.7M(300m) −0.0 | @19.5M(350m) −0.2(残余
+%   droop) | @20M(奈奎斯特) −3.4 | @24M −95 | @30M −104 dB(悬崖不变); 噪底(折叠
+%   对合计×均衡)全带 ±0.2dB 平(对齐芯片实测)。输出 NEB ≈ 20.2M(均衡后数值积分)。
 enableLpf = true;          % [开关] 抗混叠低通(模拟域)
 lpfOrder  = 3;             % [旋钮] 阶数(巴特沃斯, SOS 实现; 模拟域只管宽处, 可缓)
 % ---- 【两段式链路 2026-10 定稿, 对齐真实芯片"宽模拟 + 数字悬崖"架构】----
-% chipOsr = 芯片硬件过采样倍数(ADC 实采样率 = chipOsr×fs):
+% chipOsr = 降采样倍数(芯片 ADC 实采样率 = chipOsr×fs):
 %   1: 模拟LPF → ADC@fs → 直出(旧行为, 带边由模拟滤波器定义)
 %   2: 模拟LPF(宽) → ADC@2fs → 数字半带LPF → ÷2
 %   4: 模拟LPF(宽) → ADC@4fs → 半带LPF1 → ÷2 → 半带LPF2 → ÷2(真实芯片 160M 链)
+% 【照 96 修法上提主函数】降采样倍数主函数与射频函数都要用 —— 主函数用它算真正
+% 的数据率与雷达各项指标(fs = fsAdc/chipOsr), 射频核用它设计数字半带链并抽取 →
+% 唯一定义处在主函数、经 prm.chipOsr 注入此处(本文件不再自带旋钮)。
 % 模拟截止 = 0.45×ADC率(远离信号带, 带内零形状, 只管 >ADC奈奎斯特 的镜像区);
 % 信号带边(fs/2)由末级半带 FIR 的陡截止定义(数字墙, 线性相位)。
 % 仿真内部表示率 = 2×ADC率(编程手段: 用离散信号模仿模拟滤波作用于真实频率,
 % 与硬件倍率无关; chipOsr=1 时内部 2× 即旧行为 osf=2)。
-chipOsr   = 4;             % [旋钮] 芯片硬件过采样倍数(1 | 2 | 4); 4 = 真实芯片 160M 链
+chipOsr   = prm.chipOsr;   % 降采样倍数(1 | 2 | 4; 唯一定义处在主函数, 经 prm 注入)
 assert(any(chipOsr == [1 2 4]), 'chipOsr 只支持 1/2/4');
 hbTaps    = [63 127];      % [旋钮] 各级半带 FIR 抽头数(奇数, 4k±1; 第 s 级取 hbTaps(min(s,end)))
                            %   末级是带边悬崖, 要长: 127 抽头@80M 域 → 过渡带 ≈±1.8 MHz
 hbBeta    = 8;             % [旋钮] 半带 Kaiser 窗 β(8 ≈ −60 dB 阻带)
-fsAdc     = chipOsr * prm.fs;                  % 芯片 ADC 实采样率 (Hz)
+enableHbComp = true;       % [开关] 带边噪声均衡(照 96 修法 enableCicComp; 2026-10-28
+                           %   对齐芯片实测: 实测远端噪底【无】滤波形状 —— 不均衡时末级半带
+                           %   过渡带把白噪压出 ~2dB 下垂裙边, 实测平)
+compFreezeV  = 1.0;        % [旋钮] 均衡冻结点(v = f/(fs/2), 补偿到此为止; 1.0 = 全带)
+hbCompTaps   = 127;        % [旋钮] 均衡 FIR 抽头数(奇数; 63 → ±0.4dB 纹波, 127 → ±0.2dB)
+fsAdc     = prm.fsAdc;     % 芯片 ADC 实采样率 (Hz, 主函数唯一定义 = 160M)
+assert(abs(fsAdc - chipOsr*prm.fs) < 1, ...
+    'prm 口径不自洽: fsAdc(%gM) 必须 = chipOsr×fs(%d×%gM) —— 改降采样倍率请改主函数 chipOsr', ...
+    fsAdc/1e6, chipOsr, prm.fs/1e6);
 lpfFc     = 0.45 * fsAdc;  % 模拟截止 = 0.45×ADC率(chipOsr=1 时 = 0.45×fs, 同旧口径)
 assert(lpfFc < 0.48*fsAdc, ...
     'lpfFc(%g MHz) 过分贴近/超过 ADC 奈奎斯特 %g MHz —— 抗混叠失效', lpfFc/1e6, fsAdc/2/1e6);
@@ -230,16 +242,18 @@ enableLeakNear = true;     % [开关] 近距非零 bin 泄漏多径族【统一�
                            %   一次性启停 leakPaths 全部近距路径；false → 近距码梳
                            %   全部消失，只剩闪烁噪声抬底（对比实验用）。
                            %   幅度基准同零频块：isoMat × (leakRes_dB + 逐路径电平)
-leakPaths     = [ 1.5,   -20;    % [旋钮] 近距泄漏多径表：每行一条路径 [差拍bin, 相对电平dB]。
-                  3.0,  -48;    %   差拍 bin = 路径延迟 τ×slope（视在距离 = c·τ/2），
-                  0.15, -50 ]; %   可非整数；恰直流（bin=0）用上方『零频泄漏』块独立控制。
+leakPaths     = [ 58.6e3,  -20;  % [旋钮] 近距泄漏多径表：每行一条路径 [差拍频率Hz, 相对电平dB]。
+                  117.2e3, -48;  %   差拍频率 fb = 路径延迟 τ×slope → 视在距离 = c·fb/(2·slope)，
+                  5.86e3,  -50 ];%   物理固定、与采样配置解耦（bin 口径会随 fs/采样点数漂移，
+                           %   Hz 不会 —— 照 96 修法 Hz 化, 表值 = 原 1.5/3.0/0.15 bin
+                           %   @fs40M/1024 点等值换算）。
                            %   相对电平 = 逐路径修正，与全局 leakRes_dB 相加后
                            %   作用于隔离度基准幅度（0 = 满值）。
                            %   默认三行 = 三类物理机制（每条独立固定随机相位）：
-                           %     1.5 bin  : 地弹 + 屏蔽腔内多次反射（主残余, 已标定）
-                           %     3.0 bin  : 环境残余反射（暗室吸收材料残余 0.5~2 m）
-                           %     0.15 bin : 天线互耦（mm~cm → 亚 bin, 多数落 bin0 被丢弃）
-                           %   自由增删行 = 加/减机制；只留 [1.5, 0] 一行 = 旧版单路径
+                           %     58.6 kHz : 地弹 + 屏蔽腔内多次反射（视在 ~1.05 m, 主残余, 已标定）
+                           %     117.2 kHz: 环境残余反射（视在 ~2.1 m, 暗室吸收材料残余 0.5~2 m）
+                           %     5.86 kHz : 天线互耦（视在 ~0.1 m → 亚 bin, 多数落 bin0 被丢弃）
+                           %   自由增删行 = 加/减机制；恰直流（fb=0）用上方『零频泄漏』块独立控制
 leakRes_dB    = -5;        % [旋钮] 泄漏残余电平修正 (dB)：【近距码梳高度直接控制量】，
                            %   ±X dB → 全部码梳峰值同步 ±X dB（作用于 leakPaths 所有
                            %   路径与零频路径的泄漏幅度，与滤波器形状无关；逐路径
@@ -359,7 +373,7 @@ c = physconst('lightspeed');
 %% ============================ 雷达参数 ============================
 % 共享雷达常数全部由主函数经 prm 结构体注入(唯一定义处在主函数, 此处不再重复):
 startFreq     = prm.fStart;        % 扫频起始频率
-adcSampleRate = prm.fs;        % ADC 实采样率 fs（单路实数采样）
+adcSampleRate = prm.fs;        % 输出数据率 fs（降采样后, 单路实数; ADC 物理率 = prm.fsAdc）
 % nSamples / nChirps 由主函数注入(函数入参)
 
 nSamplesValid = nSamples/2 + 1;% 实采样距离维有效 bin 数（0 ~ fs/2，含 fs/2 点）
@@ -368,9 +382,9 @@ FFT_N0 = 128;                  % 角度二维 CFAR FFT 点数（预留）
 % FFT_d0 阵列实际间距由主函数注入(antenna_t/antenna_r 已按它缩放), 此处不重复定义
 
 B      = prm.B;                % Chirp 有效带宽（= 采样窗 Ts 内扫过的带宽）
-Ts     = nSamples/adcSampleRate;   % ADC 采样窗 = 51.2 us
+Ts     = nSamples/adcSampleRate;   % ADC 采样窗 = 25.6 us
 T_idle = prm.Tc - Ts;          % chirp 间保护时间
-Tc     = prm.Tc;               % chirp 周期 = 60 us（必须大于 ADC 采样窗 Ts！）
+Tc     = prm.Tc;               % chirp 周期 = 37 us（必须大于 ADC 采样窗 Ts！）
 adcStartDelay = 5e-6;          % ADC 相对 chirp 起始的采样延迟 (s)：真实链路不在 chirp
                                % 起点采样、首部留几 µs —— 泄漏单音在 chirp 边界的相位
                                % 跳变（DDMA 码步进+步进频跳变）会激发高通建立瞬态
@@ -378,10 +392,10 @@ adcStartDelay = 5e-6;          % ADC 相对 chirp 起始的采样延迟 (s)：�
                                % 设 0 恢复从 chirp 起点采样（会看到首/末端瞬态伪值）
 PRF    = 1/Tc;                 % chirp 重复频率
 
-FreqSlope = B/Ts;              % 调频斜率 ≈ 5.02 MHz/us
+FreqSlope = B/Ts;              % 调频斜率 ≈ 8.36 MHz/us
 
-DeltaR = c/(2*B);              % 距离分辨率 = 0.584 m（只由带宽 B 决定，与采样方式无关）
-Rmax   = c*adcSampleRate/(4*FreqSlope);   % 实采样最大不模糊距离 ≈ 299 m
+DeltaR = c/(2*B);              % 距离分辨率 = 0.701 m（只由带宽 B 决定，与采样方式无关）
+Rmax   = c*adcSampleRate/(4*FreqSlope);   % 实采样最大不模糊距离 ≈ 359 m
 
 % IF 抗混叠低通滤波器（位于 dechirp 之后、ADC 之前）：参数与使能已移至
 % 文件前部"仿真控制开关"区（enableLpf / lpfOrder / lpfFc）。只负责抗混叠
@@ -486,11 +500,38 @@ for s = 1:max(nDStg,1)
 end
 nnOf = @(h) -(numel(h)-1)/2 : (numel(h)-1)/2;   % FIR 对称中心轴(行向量)
 hbMagOf = @(sI, fHz) arrayfun(@(fq) abs(sum(hbH{sI} .* exp(-1j*2*pi*(fq/hbR(sI))*nnOf(hbH{sI})))), fHz);
+
+% ---- 带边噪声均衡设计(照 96 修法 enableCicComp; 在 B_noise 之前 —— NEB 需计入均衡) ----
+% 输出域白噪响应 = 两级 ÷2 折叠后的【折叠对合计】H_pair(f) = sqrt(Σ_k [H²(k·fs+f) + H²((k+1)·fs−f)]),
+% k = 0..chipOsr−1(HB 链各级阻带已把远端 alias 压死, 主要贡献 = 末级过渡带对 f 与 fs−f)。
+% 不均衡时 H_pair 在末级过渡带(≈0.93~1×fs/2)下垂 → 噪底出现滤波形状(实测没有)。
+% 均衡目标 = H_pair 本身(不是带内幅度!): G = 1/max(H_pair, cap) —— 噪底按构造拉平;
+% 96 的"全额均衡抬折叠噪声 +2dB"教训是均衡带内幅度的做法, 对折叠对合计均衡不发生。
+% 信号得 G×H(f): 350m(v=0.975) 残余 droop ≈ −0.2dB, 奈奎斯特点 ≈ −3.4dB(未用带尾);
+% 带外强目标折叠残余同乘 G(峰值 +2.7dB, 只影响最后 ~10 bin, "鬼影 −4~−7dB 折回"口径不变)。
 if nDStg > 0
-    % 输出噪声带宽 = 末级半带 NEB(FIR, DC 增益 1 时 NEB = R·Σh²/2; 砖墙@fs/4 → fs/4)。
-    % 模拟 NEB(≈0.46×fsAdc) ⊃ 半带带内 → 级联 NEB = 半带 NEB(模拟在带内 ≈ 0dB)
-    B_noise = hbR(end) * sum(hbH{end}.^2) / 2;
+    gAna = @(fb) (1-enableLpf) + enableLpf*(1./sqrt(1 + (fb/lpfFc).^(2*lpfOrder)));   % 模拟 LPF 幅度
+    gDig = @(fb) arrayfun(@(fq) prod(arrayfun(@(sI) hbMagOf(sI, fq), 1:nDStg)), fb);  % 半带链幅度
+    gChainA = @(fb) gAna(fb) .* gDig(fb);                    % ADC 域原生频率的链路幅度
+    vG = linspace(0, 1, 513).';  fG = vG * prm.fs/2;         % 输出频率栅格(0 ~ fs/2)
+    Hpair = zeros(size(fG));
+    for kA = 0:chipOsr-1                                     % 折叠到输出 bin 的全部原生频点
+        Hpair = Hpair + gChainA(kA*prm.fs + fG).^2 + gChainA((kA+1)*prm.fs - fG).^2;
+    end
+    Hpair = sqrt(Hpair);
+    if enableHbComp
+        capV  = interp1(vG, Hpair, compFreezeV);             % 冻结点处的合计幅度(截断增益上限)
+        bComp = fir2(hbCompTaps-1, vG, 1./max(Hpair, capV)); % 逆 droop(阶数 = 抽头−1, 奇抽头
+        bComp = bComp/sum(bComp);                            %   Type I → 奈奎斯特点增益可非零; 直流增益 1)
+        gC    = @(fb) arrayfun(@(fq) abs(sum(bComp .* exp(-1j*2*pi*(fq/prm.fs)*(0:numel(bComp)-1)))), fb);  % 均衡幅度(DTFT 直算, 标量/向量都吃)
+    else
+        bComp = 1;  gC = @(fb) ones(size(fb));               % 关 → 全通(=旧行为, 噪底带下垂)
+    end
+    % 输出噪声带宽 = (折叠对合计 × 均衡)²的数值积分 —— 抽取只搬谱不改总功率, 折叠
+    % 贡献天然含在 H_pair 里; 均衡后 ≈ fs/2(拉平的噪底), 不均衡 ≈ 末级半带 NEB
+    B_noise = trapz(fG, (Hpair .* gC(fG)).^2);
 else
+    bComp = 1;  gC = @(fb) ones(size(fb));                   % 无数字链 → 无 droop, 全通
     B_noise = lpfFc * (pi/(2*lpfOrder)) / sin(pi/(2*lpfOrder));  % 巴特沃斯 NEB ≈ 1.02*fc
 end
 Pn_W    = k_B * T0 * B_noise * 10^(NF_dB/10);         % 单通道噪声功率 (W, RX输入端)
@@ -504,8 +545,9 @@ noiseSigmaW = noiseSigma * sqrt(adcSampleRate/(2*B_noise));
 %   (单因素对比实验用, 见 quantProbe.m; 日常不传 → 行为与原版完全一致)。
 %   位置在参数区末尾、数据计算(W 加权)之前; 覆盖后重算受牵连的派生量
 %   (G_rx 线性值、噪声 σ) —— 否则只改 G_rx_dB 不会传导到噪声。
-%   注意: chipOsr/hbTaps 不经 swOv 覆盖(派生链太长: fsAdc/lpfFc/半带/NEB/osf
-%   全要重算), 两段式对比实验请直接改文件顶部旋钮。
+%   注意: chipOsr 已上提主函数(经 prm 注入)、hbTaps/enableHbComp 派生链太长
+%   (fsAdc/lpfFc/半带/均衡/NEB/osf 全要重算), 均不经 swOv 覆盖 —— 两段式对比
+%   实验请直接改主函数的 chipOsr(射频核自动跟随)或本文件 hbTaps/均衡开关。
 % 可选第 11 参 printCfg(默认 true): false 时只静默"雷达参数"配置块与配置类
 %   状态行(算力/芯片噪声σ/量化), 目标表与量程检查等数据行仍打印 ——
 %   两遍射频同配置时, 配置只从第一遍(或目标遍)打印一次, 不重复刷屏。
@@ -558,8 +600,8 @@ fprintf('跳频误差       : %s, σ=%.0f Hz/chirp 正态分布（逐 chirp 独�
         onoffStr(enableHopErr), hopErr_Hz);
 fprintf('馈线色散       : %s, 最大长度差 %.1f cm（16 条 TX/RX 馈线形状 × 缩放因子）, 全带中心 %.4f GHz 处校准（中心相位相等, 偏离中心按线长差计算）\n', ...
         onoffStr(enableFeedDisp), 100*feedLenScale, f_center/1e9);
-fprintf('ADC 实采样率   : %.1f MHz, 奈奎斯特带宽 [0, %.1f) MHz\n', ...
-        adcSampleRate/1e6, adcSampleRate/2/1e6);
+fprintf('输出数据率     : %.1f MHz (ADC 实采 %.0fM ÷ 降采样倍率 chipOsr=%d, 倍率已上提主函数), 奈奎斯特带宽 [0, %.1f) MHz\n', ...
+        adcSampleRate/1e6, fsAdc/1e6, chipOsr, adcSampleRate/2/1e6);
 fprintf('模拟IF低通     : %s, 巴特沃斯 %d 阶, 截止 %.1f MHz(=0.45×ADC率%gM) | 响应: ', ...
         onoffStr(enableLpf), lpfOrder, lpfFc/1e6, fsAdc/1e6);
 for fq = (prm.fs/2)/1e6*[0.5 0.7 0.85 0.95 1 1.25 1.5]   % 打印频点随 fs 联动(×奈奎斯特, MHz)
@@ -569,7 +611,8 @@ end
 fprintf('dB (1.0×=输出奈奎斯特 %g MHz; 模拟只管宽处, 带边见数字链)\n', prm.fs/2/1e6);
 fprintf('数字抽取链     : chipOsr=%d → ADC@%gM, %d 级半带 FIR', chipOsr, fsAdc/1e6, nDStg);
 for s = 1:nDStg, fprintf(' | HB%d %d抽头@%gM域/截止%gM', s, numel(hbH{s}), hbR(s)/1e6, hbFc(s)/1e6); end
-fprintf(' | 输出NEB=%.2fM\n', B_noise/1e6);
+fprintf(' | 带边噪声均衡 %s(%d抽头@输出域, 冻结 v=%.2f → 噪底全带拉平对齐芯片实测) | 输出NEB=%.2fM\n', ...
+        onoffStr(enableHbComp && nDStg > 0), numel(bComp), compFreezeV, B_noise/1e6);
 fprintf('模拟高通(两级) : %s, HPF1 %.0f kHz/%d阶 + HPF2 %.0f kHz/%d阶, 阻带残余 %.0f dB（=近距泄漏码梳高度, ±5dB→码梳±5dB）\n', ...
         onoffStr(enableHpf), hpf1Fc/1e3, hpf1Order, hpf2Fc/1e3, hpf2Order, hpfFloor_dB);
 noiseState = strrep(char(string(enableNoise)), 'true', '开启');
@@ -599,7 +642,7 @@ plkDb = 10*log10(Pt*sum(10.^(isoMat/10),1)*1e3);   % 各 RX 总泄漏功率 (dBm
 fprintf('TX-RX 泄漏     : %s, 各RX总泄漏 %.1f ~ %.1f dBm, 近距多径族 %s（全局修正 %+.0f dB）: ', ...
         onoffStr(enableLeakage), min(plkDb), max(plkDb), onoffStr(enableLeakNear), leakRes_dB);
 for pp = 1:size(leakPaths, 1)
-    fprintf('bin%.2f(%+.0fdB) ', leakPaths(pp,1), leakRes_dB + leakPaths(pp,2));
+    fprintf('fb%.1fk(%+.0fdB) ', leakPaths(pp,1)/1e3, leakRes_dB + leakPaths(pp,2));
 end
 fprintf('非直流→无镜像; 恰直流 %s(%+.0fdB→bin0+镜像); 闪烁噪声抬高近距底噪\n', ...
         onoffStr(enableLeakDC), leakRes_dB + leakDC_dB);
@@ -640,14 +683,14 @@ for k = 1:Obj_amount
         Hh1 = 1;  Hh2 = 1;
     end
     % 两段式链路解析增益: 模拟LPF@真实fb → ADC 折叠(>fsAdc/2) → 逐级半带
-    % (每级先滤波后 ÷2: 超过该级奈奎斯特的残余折到带内, 由后续级继续压)
+    % (每级先滤波后 ÷2: 超过该级奈奎斯特的残余折到带内, 由后续级继续压) → 带边均衡
     fk = f_bk;  gk = Hk;
     if fk > fsAdc/2, fk = fsAdc - fk; end           % ADC 采样折叠
     for s = 1:nDStg
         gk = gk * hbMagOf(s, fk);
         if fk > hbR(s)/2, fk = hbR(s) - fk; end     % 该级 ÷2 后的折叠残余频率
     end
-    filtGainDb(k) = 20*log10(gk * Hh1 * Hh2);       % IF 链路总增益(含数字链) @ 差拍频点 (dB)
+    filtGainDb(k) = 20*log10(gk * Hh1 * Hh2 * gC(fk));  % IF 链路总增益(含数字链+均衡) @ 差拍频点 (dB)
     filtFbHz(k)   = f_bk;
     % 接收功率（远场单站近似 Rt=Rr=R）: Pr = Pt·Gt·Gr·λ²·σ / ((4π)³·R⁴)
     Pr_k = Pt*Gt*Gr*lambda^2*RCS(k) / ((4*pi)^3 * Obj_R(k)^4);
@@ -967,9 +1010,9 @@ end
 % 通道底噪也看不出差别，与实测一致）。
 lkOn     = double(enableLeakage);                 % 总开关（false=0 → 无泄漏、无闪烁）
 lnOn     = lkOn * double(enableLeakNear);         % 近距多径族开关（总开关与统一开关同时开才有效）
-% 泄漏多径族预计算：各路径等效延迟与电平（多径表 leakPaths，bin 可非整数）
+% 泄漏多径族预计算：各路径等效延迟与电平（多径表 leakPaths，fb 单位 Hz —— 照 96 修法）
 nLeakP   = size(leakPaths, 1);                    % 路径条数
-leakTauP = leakPaths(:,1) * (adcSampleRate/nSamples) / FreqSlope;      % 各路径延迟 (s)
+leakTauP = leakPaths(:,1) / FreqSlope;            % 各路径延迟 (s) = fb/斜率（物理固定, 与采样配置无关）
 A_leak   = sqrt(Pt * G_rx * 10.^(isoMat/10));     % 8×8 泄漏基准幅度（ADC 域, 不含电平修正）
 leakAmpP = 10.^((leakRes_dB + leakPaths(:,2).')./20);  % 各路径电平系数（全局 leakRes + 逐路径修正）
 leakPh   = 2*pi*rand(nTX, nRX, nLeakP);           % 每 TX-RX-路径 固定随机相位 (rad)
@@ -1294,9 +1337,19 @@ for s = 1:nDStg
     end
     adcRawData = adcRawData(1:2:end, :, :);    % ÷2
 end
+% ---- 带边噪声均衡(输出域, 抽取后; 每列 = 1 chirp 独立滤波, 与半带级同口径) ----
+% 把末级过渡带的噪底下垂拉平(设计见上方均衡块)。窗口沿 FIR 瞬态与半带级同性格
+% (近距 bin 本就被高通压低 + 泄漏标定吸收), 对 350m 目标残余 droop ≈ −0.2dB。
+if enableHbComp && nDStg > 0
+    for ii = 1:nRX
+        adcRawData(:, :, ii) = filter(bComp, 1, adcRawData(:, :, ii));
+    end
+end
 if nDStg > 0
-    fprintf('数字抽取链     : %d 级半带 FIR 完成, ADC 域 %d 样点/chirp → 输出 %d 样点/chirp\n', ...
+    fprintf('数字抽取链     : %d 级半带 FIR 完成, ADC 域 %d 样点/chirp → 输出 %d 样点/chirp', ...
             nDStg, chipOsr*nSamples, size(adcRawData, 1));
+    if enableHbComp, fprintf(' + 带边噪声均衡 %d 抽头(噪底拉平)', numel(bComp)); end
+    fprintf('\n');
 end
 
 % ---- 16bit 溢出异常模拟（补码环绕, 可开关; 位于量程检查之后、2D-FFT 之前） ----
@@ -1347,12 +1400,20 @@ else
     gD = @(fb) ones(size(fb));
 end
 filtGainAtR = @(Rq) 20*log10( gA(2*FreqSlope*Rq/c) .* gD(2*FreqSlope*Rq/c) ...
-                              .* gH(2*FreqSlope*Rq/c) );
+                              .* gH(2*FreqSlope*Rq/c) .* gC(2*FreqSlope*Rq/c) );
 
-% 滤波链设计参数随 rfInfo 输出(图由主流程 filtChainDraw 在正确时序画, 模块不画图)
+% 滤波链设计参数随 rfInfo 输出(图由主流程 filtChainDraw 在正确时序画, 模块不画图);
+% 链路预算字段(字段名与 96/97 工程一致)供主函数 snrAnaCalc 审计: Pr 用 Pt/Gt/Gr/λ,
+% PSD 用 Pn0_W_Hz = kT·NF(W/Hz, 不含带宽), 滤形用上面的 filtGainAtR
 rfInfo = struct('filtGainDb', filtGainDb, 'fbHz', filtFbHz, 'filtGainAtR', filtGainAtR, ...
     'chipOsr', chipOsr, 'fsAdc', fsAdc, 'nDStg', nDStg, ...
     'hbTapsUsed', cellfun(@numel, hbH(1:max(nDStg,1))), 'B_noise', B_noise, ...
-    'lpfFc', lpfFc, 'lpfOrder', lpfOrder, 'hbFc', hbFc, 'hbR', hbR, 'hbH', {hbH});
+    'lpfFc', lpfFc, 'lpfOrder', lpfOrder, 'hbFc', hbFc, 'hbR', hbR, 'hbH', {hbH}, ...
+    'hbCompOn', enableHbComp && nDStg > 0, 'compFreezeV', compFreezeV, ...
+    'bComp', {bComp}, 'gC', {gC}, ...
+    'lambda', lambda, 'Pt_dBm', Pt_dBm, 'Gt_dBi', Gt_dBi, 'Gr_dBi', Gr_dBi, ...
+    'NF_dB', NF_dB, 'Pn0_W_Hz', Pn_W/B_noise, 'nTX', nTX, ...
+    'pllTrackOn', enablePllTrack, 'pnTrackCoef', pnTrackCoef, ...
+    'hopErrOn', enableHopErr, 'hopErrHz', hopErr_Hz);
 
 end

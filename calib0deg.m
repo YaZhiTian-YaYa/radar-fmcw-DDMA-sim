@@ -5,11 +5,11 @@ function [cCal, calibInfo] = calib0deg(fftCfg, encodeSeq, nSamples, nChirps, prm
 %
 %   原理:
 %     目标1 在 0°(方位/俯仰 0)已知距离 R1 处。理想平面波下 64 通道相位全 0,
-%     实测相位 = 通道失配 + 【近场球面波相位】(目标不在远场时)。
+%     仿真测量相位 = 通道失配 + 【近场球面波相位】(目标不在远场时)。
 %     近场补偿: 目标在 y 轴(正视方向)上, TX i / RX j 到目标的单程距离
 %       Rt_i = sqrt(x_ti^2 + R1^2 + z_ti^2),  Rr_j = sqrt(x_rj^2 + R1^2 + z_rj^2)
 %     近场引入的额外相位(相对远场平面波 2R1) = -k*(Rt_i + Rr_j - 2R1), k = 2π/λ。
-%     从实测相位中把它加回去(等效除掉 e^{-jk ΔR}), 剩下的才是通道失配 →
+%     从仿真测量相位中把它加回去(等效除掉 e^{-jk ΔR}), 剩下的才是通道失配 →
 %     校准表 = 共轭相位(单位模, 只校相位不校幅度)。
 %     每个TX的目标1 谱线位置: 距离 bin = 差拍/bin间隔(全 TX 共用);
 %     速度 bin = 多普勒 + DDMA 码位×(nChirps/16) + 步进频耦合 f_step·τ·nChirps。
@@ -48,7 +48,7 @@ function [cCal, calibInfo] = calib0deg(fftCfg, encodeSeq, nSamples, nChirps, prm
     phNF = nearFieldPh(antenna_t, antenna_r, R1, k);
 
     % ---- 通道相位: 近场补偿 → 去均值 → 共轭 → 单位模 ----
-    % 【不扣解析码相位 phCode】: 实测证明(理想链路)提取相位 = 每 TX 常量 + 每 RX
+    % 【不扣解析码相位 phCode】: 仿真验证(理想链路)提取相位 = 每 TX 常量 + 每 RX
     % 常量(行列可分, 不可分离残差 0°), 即 DDMA 码/窗相位常量与 TX 通道相位【不可
     % 分辨】且同属校准表应覆盖的内容 → 一并留在表内。注意: 窗相位含 πk(N-1)/N
     % 项, 在奇偶不同的多普勒 bin 上相差 180°——用本表校准其它 bin 的通道时,
