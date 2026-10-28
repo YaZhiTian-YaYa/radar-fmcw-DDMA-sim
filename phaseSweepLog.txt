@@ -1,0 +1,43 @@
+======== 1/24: Δazi=1.5° Δφ=0° ========
+  DBF:true OMP O2@NaN°(errB NaN°) DML D2@NaN° | A:8 B:8
+======== 2/24: Δazi=1.5° Δφ=15° ========
+  DBF:true OMP O2@NaN°(errB NaN°) DML D2@NaN° | A:8 B:8
+======== 3/24: Δazi=1.5° Δφ=30° ========
+  DBF:true OMP O2@NaN°(errB NaN°) DML D2@NaN° | A:8 B:8
+======== 4/24: Δazi=1.5° Δφ=45° ========
+  DBF:true OMP O2@NaN°(errB NaN°) DML D2@3.30° | A:8 B:8
+======== 5/24: Δazi=1.5° Δφ=60° ========
+  DBF:true OMP O2@1.05°(errB 2.70°) DML D2@3.31° | A:8 B:8
+======== 6/24: Δazi=1.5° Δφ=90° ========
+  DBF:true OMP O2@1.67°(errB 2.08°) DML D2@3.42° | A:8 B:9
+======== 7/24: Δazi=1.5° Δφ=135° ========
+  DBF:true OMP O2@4.41°(errB 0.66°) DML D2@3.59° | A:8 B:16
+======== 8/24: Δazi=1.5° Δφ=180° ========
+  DBF:false OMP O2@4.22°(errB 0.47°) DML D2@3.64° | A:8 B:16
+======== 9/24: Δazi=2.0° Δφ=0° ========
+  DBF:true OMP O2@0.86°(errB 3.14°) DML D2@3.61° | A:8 B:8
+======== 10/24: Δazi=2.0° Δφ=15° ========
+  DBF:true OMP O2@4.40°(errB 0.40°) DML D2@3.60° | A:8 B:15
+======== 11/24: Δazi=2.0° Δφ=30° ========
+  DBF:true OMP O2@4.90°(errB 0.90°) DML D2@3.61° | A:8 B:16
+======== 12/24: Δazi=2.0° Δφ=45° ========
+  DBF:true OMP O2@4.87°(errB 0.87°) DML D2@4.08° | A:8 B:16
+======== 13/24: Δazi=2.0° Δφ=60° ========
+错误使用 image
+不支持复数值。请将颜色数据指定为数值或逻辑值。
+
+出错 imagesc (第 52 行)
+    hh = image(varargin{:}, 'CDataMapping', 'scaled');
+
+出错 dmlRefine_pipe (第 233 行)
+        imagesc(fA, fB, JmDb); axis xy; colorbar;
+
+出错 main_sim (第 236 行)
+[tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, thrDmlDb, seedR, seedD);
+
+出错 phaseSweepProbe (第 45 行)
+    evalc('main_sim;');
+
+出错 run (第 91 行)
+evalin('caller', strcat(script, ';'));
+ERROR: MATLAB error Exit Status: 0x00000001
