@@ -221,12 +221,15 @@ loopOrder        = 4;      % [旋钮] 环路滤波器阶数（截断陡度, PSD 
 % 带宽下的跟踪误差吸收进去 —— 所以默认系数 = 0, 改 B 后的【额外】恶化量由
 % 本项补足（一个实测点只能标定一个 B 的总和, 拆不开两项, 这是诚实口径）。
 enablePllTrack = true;     % [开关] PLL 扫频跟踪误差（开关开 + 系数 0 = 行为不变）
-pnTrackCoef    = 1e-8;     % [旋钮] 跟踪误差系数 (s)：σ_δf = 系数×B/Ts (Hz), 逐 chirp
+pnTrackCoef    = 7.6e-9;   % [旋钮] 跟踪误差系数 (s)：σ_δf = 系数×B/Ts (Hz), 逐 chirp
                            %   独立正态抽取。换芯片/换带宽后实测肩膀比仿真高时, 由
                            %   超出量反推: 多普勒域非相参能量占比 ≈ σ_φ², 其中
                            %   σ_φ = 2π·σ_δf·τ (rad, τ=目标双程时延) →
                            %   系数 = σ_φ / (2π·τ·B/Ts), 再微调至肩膀对齐。
                            %   量级参考: σ_φ=0.05 rad @300m/B=214M → ≈ 7e-10 s。
+                           %   【2026-10-29 两轮重标定(用户实测口径)】原 1e-8 时 300m 线损
+                           %   −4.8dB, 实测 SNR 损耗随距离变化没这么大 → 8.9e-9(−3.8dB)
+                           %   仍偏高 → 7.6e-9, 300m 线损 −2.8dB(σφ≈0.80 rad)。
 
 % ---------- 9. 零频泄漏（片内直通 τ=0 → 差拍=0 → bin0；独立开关） ----------
 enableLeakDC   = true;    % [开关] 恰直流泄漏路径。开启后 bin0 出码梳，且 bin0 行
@@ -1413,6 +1416,7 @@ rfInfo = struct('filtGainDb', filtGainDb, 'fbHz', filtFbHz, 'filtGainAtR', filtG
     'bComp', {bComp}, 'gC', {gC}, ...
     'lambda', lambda, 'Pt_dBm', Pt_dBm, 'Gt_dBi', Gt_dBi, 'Gr_dBi', Gr_dBi, ...
     'NF_dB', NF_dB, 'Pn0_W_Hz', Pn_W/B_noise, 'nTX', nTX, ...
+    'chLossDb', 10*log10(mean((TX_A(:)*RX_A(:).').^2, 'all')), ...   % 通道锥削均值损耗(dB): 逐天线损耗差(TX_A/RX_A)的 64 通道平均功率 ≈−0.8, 供 snrAnaCalc 显式列项
     'pllTrackOn', enablePllTrack, 'pnTrackCoef', pnTrackCoef, ...
     'hopErrOn', enableHopErr, 'hopErrHz', hopErr_Hz);
 

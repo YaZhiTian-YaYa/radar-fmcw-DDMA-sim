@@ -7,7 +7,7 @@ function [accumCfg, detCfg, tgtOut] = targetDetect_pipe(noiseCfg, accumCfg, detC
 %         detCfg   -- 来自 SimAdcParam.mat 的 cfarCfg, 含逐距离门CFAR与峰判配置
 %         dims     -- 公共维度(主函数唯一定义)
 %   drawFigs: false = 只检不画(校准遍只取角反点云, 主流程两遍测量用)
-%   输出: tgtOut -- 确认目标列表(距离/多普勒索引, 幅度, SNR, DDM阶, 峰态等)
+%   输出: tgtOut -- 确认目标列表(距离/多普勒索引, 幅度, SNR(非相参 nonCohSNR / 相参 cohSNR), DDM阶, 峰态等)
 if nargin == 9        % (遗留代码, 本函数仅3个输入, 恒不触发)
     dummyBuf = [];
 end
@@ -27,6 +27,7 @@ if nargin < 5 || isempty(drawFigs), drawFigs = true; end   % 默认画图
                        'nonCohMag', [], ...
                        'nonCohSNR', [], ...
                        'cohMag', [], ...
+                       'cohSNR', [], ...
                        'cohPeakIdx', [], ...
                        'doaMag', [], ...
                        'tx_order', [], ...
@@ -245,6 +246,7 @@ if nargin < 5 || isempty(drawFigs), drawFigs = true; end   % 默认画图
                 tgtOut(tgtCnt).nonCohSNR = 10 * log10(accumCfg.nonCohMap(rngIdx, sbIdx) / noiseCfg.floorPow(rngIdx));  % 非相参SNR(dB)
 
                 tgtOut(tgtCnt).cohMag = 10 * log10(abs(accumCfg.cohPeakPow(rngIdx, sbIdx)));          % 相参峰幅度(dB)
+                tgtOut(tgtCnt).cohSNR = 10 * log10(accumCfg.cohPeakPow(rngIdx, sbIdx) / accumCfg.cohFloorPow);  % TXRX 相参 SNR(dB): 方位峰功率/相参噪底中位(注意含角度维取峰统计, 理论对照见 snrAnaCalc cohStat)
                 tgtOut(tgtCnt).cohPeakIdx = peakPosMap(rngIdx, dopBin);  % 方位峰bin位置
 
                 tgtOut(tgtCnt).tx_order = accumCfg.ddmOrdMap(rngIdx, sbIdx);   % 该目标的DDM阶数

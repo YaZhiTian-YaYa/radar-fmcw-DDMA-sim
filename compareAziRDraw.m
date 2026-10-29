@@ -28,21 +28,21 @@ function figC = compareAziRDraw(targets, dims, stageDbf, stageOmp, stageDml)
 
     % ---- (1,1) 真值 ----
     nexttile;
-    scatter([targets.azi], [targets.gate_R]*dims.DeltaR, 36, zT, 'filled', 'MarkerEdgeColor', 'k');
+    scatter([targets.azi], [targets.gate_R]*dims.DeltaR, 36, val2rgb(zT), 'filled', 'MarkerEdgeColor', 'k');
     grid on; xlim([-xLimAbs, xLimAbs]); ylim([0, rMax10]); clim([cLo, cHi]); colormap(parula);
     xlabel('方位角 (deg)'); ylabel('距离 (m)');
     title(sprintf('真值(%d 个目标)', numel(targets)));
 
     % ---- (1,2) DBF(超分辨前) ----
     nexttile;
-    scatter(stageDbf.azi, stageDbf.rng, 24, stageDbf.z, 'filled');
+    scatter(stageDbf.azi, stageDbf.rng, 24, val2rgb(stageDbf.z), 'filled');
     grid on; xlim([-xLimAbs, xLimAbs]); ylim([0, rMax10]); clim([cLo, cHi]);
     xlabel('方位角 (deg)'); ylabel('距离 (m)');
     title(sprintf('DBF 检测点(%d 个)', numel(stageDbf.azi)));
 
     % ---- (2,1) OMP 后 ----
     nexttile;
-    scatter(stageOmp.azi, stageOmp.rng, 24, stageOmp.z, 'filled'); hold on;
+    scatter(stageOmp.azi, stageOmp.rng, 24, val2rgb(stageOmp.z), 'filled'); hold on;
     scatter(stageOmp.azi(stageOmp.isO2), stageOmp.rng(stageOmp.isO2), 44, 'ko', 'LineWidth', 1.5);
     grid on; xlim([-xLimAbs, xLimAbs]); ylim([0, rMax10]); clim([cLo, cHi]);
     xlabel('方位角 (deg)'); ylabel('距离 (m)');
@@ -51,7 +51,7 @@ function figC = compareAziRDraw(targets, dims, stageDbf, stageOmp, stageDml)
 
     % ---- (2,2) DML 后 ----
     nexttile;
-    scatter(stageDml.azi, stageDml.rng, 24, stageDml.z, 'filled'); hold on;
+    scatter(stageDml.azi, stageDml.rng, 24, val2rgb(stageDml.z), 'filled'); hold on;
     scatter(stageDml.azi(stageDml.isO2), stageDml.rng(stageDml.isO2), 44, 'ko', 'LineWidth', 1.5);
     scatter(stageDml.azi(stageDml.isD1), stageDml.rng(stageDml.isD1), 44, 'ro', 'LineWidth', 1.5);
     scatter(stageDml.azi(stageDml.isD2), stageDml.rng(stageDml.isD2), 44, 'co', 'LineWidth', 1.5);

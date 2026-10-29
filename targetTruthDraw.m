@@ -18,6 +18,8 @@ function figTruth = targetTruthDraw(targets, prm, dims)
     aziT = [targets.azi];  eleT = [targets.ele];
     rcsT = [targets.rcsDb];  isC = [targets.isCorner] == 1;
     zT = R0 .* sind(eleT);
+zLim = [min(zT), max(zT)];  if diff(zLim) == 0, zLim = zLim(1) + [-1, 1]; end  % 色标量程(防退化)
+
     xT = R0 .* cosd(eleT) .* sind(aziT);
     yT = R0 .* cosd(eleT) .* cosd(aziT);
     rngT  = [targets.gate_R] * dims.DeltaR;                % 真值距离(用于轴范围)
@@ -31,33 +33,33 @@ function figTruth = targetTruthDraw(targets, prm, dims)
     tiledlayout(2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
 
     nexttile;
-    scatter(xT, yT, 24, zT, 'filled'); hold on;
+    scatter(xT, yT, 24, val2rgb(zT), 'filled'); hold on;
     scatter(xT(isC), yT(isC), 80, 'r*', 'LineWidth', 1);       % 校准角反标红星
     text(xT, yT, arrayfun(@num2str, 1:nTgtT, 'UniformOutput', false), ...
          'FontSize', 7);                                       % 目标序号(对照场景文档)
-    grid on; colorbar;
+    grid on; colorbar; clim(zLim);
     xlim([-sym10(xT), sym10(xT)]); ylim([0, rMax10]);
     xlabel('x (m)'); ylabel('y (m)'); title('x-y 位置 (颜色=高度z, 标注=目标序号)');
     nexttile;
-    scatter(aziT, R0, 24, zT, 'filled'); hold on;
+    scatter(aziT, R0, 24, val2rgb(zT), 'filled'); hold on;
     scatter(aziT(isC), R0(isC), 80, 'r*', 'LineWidth', 1);
-    grid on; colorbar;
+    grid on; colorbar; clim(zLim);
     xlim([-sym10(aziT), sym10(aziT)]); ylim([0, rMax10]);
     xlabel('方位角 (deg)'); ylabel('距离 (m)'); title('方位角-距离');
     nexttile;
-    scatter(dopC, [targets.gate_R], 24, zT, 'filled'); grid on; colorbar;
+    scatter(dopC, [targets.gate_R], 24, val2rgb(zT), 'filled'); grid on; colorbar; clim(zLim);
     xlim([0, dims.dopBinNum-1]); ylim([0, dims.rngUse]);
     xlabel('多普勒 bin'); ylabel('距离 bin'); title('多普勒-距离 (满bin, 含耦合)');
     nexttile;
-    scatter(zT, yT, 24, zT, 'filled'); grid on; colorbar;
+    scatter(zT, yT, 24, val2rgb(zT), 'filled'); grid on; colorbar; clim(zLim);
     xlim([-sym10(zT), sym10(zT)]); ylim([0, rMax10]);
     xlabel('z (m)'); ylabel('y (m)'); title('z-y 位置');
     nexttile;
-    scatter(eleT, R0, 24, zT, 'filled'); grid on; colorbar;
+    scatter(eleT, R0, 24, val2rgb(zT), 'filled'); grid on; colorbar; clim(zLim);
     xlim([-sym10(eleT), sym10(eleT)]); ylim([0, rMax10]);
     xlabel('俯仰角 (deg)'); ylabel('距离 (m)'); title('俯仰角-距离');
     nexttile;
-    scatter3(xT, yT, zT, 24, zT, 'filled'); grid on;
+    scatter3(xT, yT, zT, 24, val2rgb(zT), 'filled'); grid on;
     xlabel('x (m)'); ylabel('y (m)'); zlabel('z (m)'); view(3);
     title('目标 xyz (可旋转)');
     sgtitle(sprintf('真值目标图: 共 %d 个(颜色=高度z, 红星=校准角反, 序号同《目标场景设计说明》) —— 与 fig17/19/21 点云对比看漏检与虚假点', nTgtT));

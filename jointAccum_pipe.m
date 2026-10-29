@@ -9,6 +9,7 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0
 %   accumCfg.nonCohMap / ddmOrdMap 由非相参积累给出, 其余为相参积累输出
 %   输出: accumCfg.aziFftSpec -- 方位维FFT谱 [128方位 × rngUse距离 × subBins(=16)子带]
 %         accumCfg.cohPeakPow / cohPeakPos -- 各单元方位谱峰值功率/位置
+%         accumCfg.cohFloorPow -- 相参噪底中位(cohPeakPow 全图中位, 供点云 cohSNR)
 %         accumCfg.chanSnapshot -- 各单元64通道复数快照(供测角)
 %         accumCfg.figAccum -- 积累图句柄(不画图时为空)
 %   drawFigs: false = 只算不画(校准遍只取积累结果, 主流程两遍测量用)
@@ -56,6 +57,11 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0
     accumCfg.cohPeakPos = single(squeeze(accumCfg.cohPeakPos));   % 峰值方位bin位置   [512×32]
     accumCfg.aziFftPowDb = single(db(abs(accumCfg.aziFftSpec))); % 方位谱dB形式(供CFAR检测)
     accumCfg.cohGainDb = 10*log10(accumCfg.cohPeakPow ./ accumCfg.nonCohMap);  % 相参相对非相参的积累增益(dB)
+% 相参噪底中位(全图中位数): cohPeakPow 每单元已是【方位维取峰】的功率图, 其全图中位
+% = TXRX 相参口径的噪底参考(供点云 cohSNR = 方位峰功率/该中位) —— 注意此口径的噪底
+% 含 max-of-角度bin 统计抬升, 比单角度 bin 噪底高 ~8dB(理论 ln(Nang_eff)/ln2), 与
+% snrAnaCalc 的 cohStat 项配套
+accumCfg.cohFloorPow = median(accumCfg.cohPeakPow(:));
 
     %% 第三步: 绘图(一张大图 2×4: 上排非相参 / 下排相参, 各 4 个视角的 3D 曲面)
     % 视角依次参考 RD 3D 图(RX4/RX3/RX1/RX2 的视角), 免旋转直接观察;
