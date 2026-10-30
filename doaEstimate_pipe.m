@@ -62,6 +62,12 @@ function [tgtOut, detCfg] = doaEstimate_pipe(detCfg, tgtOut, AntCaliData, rowLut
             subArrOut(subIdx) = steerVec * detCfg.doaChanIn(tgtIdx, chanSel).';
         end
 
+        % 子阵输出归一(单位模, 只留相位; 2026-10-30): 俯仰谱 = 等幅孔径口径。
+        % 数据侧与导向侧按行归一数学等价(同一标量乘同一项, 实测差 <1e-14), 按约定放数据侧。
+        % 不归一时元素最多的行(36 元主行)的自然幅度会把俯仰副瓣压低约 6 dB
+        % (实测 B1 阵 @(0°,0°): -2.8 dB vs 等幅 -8.9 dB), 方向图/副瓣类评估口径偏乐观。
+        subArrOut = subArrOut ./ max(abs(subArrOut), eps);
+
         % 子阵输出 × 子阵俯仰导向矢量 -> 俯仰谱, 取第1个峰(幅度谱findpeaks)
         eleDbfBuf = subArrOut * eleGrpSteerVec(1:subArrUsed,:);
         pkPow = zeros(4, 1);
