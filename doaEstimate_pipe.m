@@ -103,8 +103,8 @@ function [tgtOut, detCfg] = doaEstimate_pipe(detCfg, tgtOut, AntCaliData, rowLut
     aziEst = cell2mat(arrayfun(@(t) double(t.azimuth),  tgtOut, 'UniformOutput', false));
     eleEst = cell2mat(arrayfun(@(t) double(t.elevation), tgtOut, 'UniformOutput', false));
     zEst   = rngEst .* sind(eleEst);                     % 高度 z = 距离 × sin(俯仰)
-    xPos   = rngEst .* cosd(eleEst) .* sind(aziEst);
-    yPos   = rngEst .* cosd(eleEst) .* cosd(aziEst);
+    xPos   = rngEst .* cosd(eleEst) .* cosd(aziEst);   % 车身系: 0°在 X 轴
+    yPos   = rngEst .* cosd(eleEst) .* sind(aziEst);   % 方位在 Y 轴
     detCfg.tgtXYZ = [xPos; yPos; zEst];                  % 供后续使用
 
     % 坐标轴设置: 横轴左右对称(角度) / 纵轴满量程, 均取 10 的倍数;

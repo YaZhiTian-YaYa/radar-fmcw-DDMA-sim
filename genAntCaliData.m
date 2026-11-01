@@ -12,7 +12,7 @@ function [AntCaliData, rowLut] = genAntCaliData(A_manifold, FFT_d0, lambda, cCal
 %   rowLut: [行数 × 64] 通道按 z 坐标(俯仰行)分组查找表, 供 DOA 子阵划分
 %   (参考阵列: 方位最长行 30 元/俯仰 12 行; 我们的阵列: 最长行 36 元/俯仰 9 行,
 %    全部由 A_manifold 读数据得出, 不人为输入)
-    xC = A_manifold(1, :);                       % 通道 x (m) —— 导向矢量必须用物理米坐标
+    xC = A_manifold(2, :);                       % 通道 y(方位, 车身系, m) —— 导向矢量必须用物理米坐标
     zC = A_manifold(3, :);                       % 通道 z (m) → 俯仰行划分依据
     k  = 2*pi/lambda;
 

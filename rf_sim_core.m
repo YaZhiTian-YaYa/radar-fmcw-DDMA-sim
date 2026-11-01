@@ -593,7 +593,7 @@ fprintf('波形频率        : 起始 %.4f GHz → 中心 %.4f GHz → 结束 %.
 dzRow   = spacingGCD(antenna_t(3,:).' + antenna_r(3,:));   % 俯仰行基线间距 (m)
 lamC    = c/f_center;                                  % 中心频率波长 (m)
 eleUa   = asind(min(1, lamC/(2*dzRow)));               % 俯仰无模糊范围 (≥1 时为 ±90)
-dzAzi   = spacingGCD(antenna_t(1,:).' + antenna_r(1,:));   % 方位基线间距 (m)
+dzAzi   = spacingGCD(antenna_t(2,:).' + antenna_r(2,:));   % 方位基线间距 (m, 车身系 y)
 aziUa   = asind(min(1, lamC/(2*dzAzi)));
 fprintf('俯仰无模糊范围  : ±%.1f° (俯仰行间距 %.3f mm = %.2fλ, 中心频率 %.4f GHz; 超出将出现俯仰栅瓣)\n', ...
         eleUa, dzRow*1e3, dzRow/lamC, f_center/1e9);

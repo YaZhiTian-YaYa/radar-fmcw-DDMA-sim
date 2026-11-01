@@ -59,14 +59,14 @@ function [cCal, calibInfo] = calib0deg(fftCfg, encodeSeq, nSamples, nChirps, prm
     cCal  = reshape(exp(-1i*phErr), 1, []);      % [1×64], TX 内循环/RX 外循环(同 A_manifold)
 
     % ---- 可不做近场补偿的最小距离: 双程最坏 (a_t²+a_r²)/(2R)≤D²/(4R), 相位≤π/8 ----
-    Dx = max([antenna_t(1,:) antenna_r(1,:)]) - min([antenna_t(1,:) antenna_r(1,:)]);
+    Dx = max([antenna_t(2,:) antenna_r(2,:)]) - min([antenna_t(2,:) antenna_r(2,:)]);
     Dz = max([antenna_t(3,:) antenna_r(3,:)]) - min([antenna_t(3,:) antenna_r(3,:)]);
     D  = hypot(Dx, Dz);                          % 整阵对角尺寸
     RfarField = 4*D^2/lambda;
 
     % ================= 校准检查图(单图: 校准源 × 校准表 角度谱) =================
     theta = linspace(-90, 90, 1801) * pi/180;
-    xv = antenna_t(1,:).' + antenna_r(1,:);      % [nTX×nRX] 虚拟阵元 x
+    xv = antenna_t(2,:).' + antenna_r(2,:);      % [nTX×nRX] 虚拟阵元 y(方位, 车身系)
     zv = antenna_t(3,:).' + antenna_r(3,:);
     zRows = unique(zv(:));
     nInRow = zeros(numel(zRows), 1);
@@ -146,7 +146,7 @@ end
 % 近场相位 [nTX×nRX]: φ = -k(Rt_i + Rr_j - 2R), 目标在正视 y 轴
 % ----------------------------------------------------------------
 function phNF = nearFieldPh(antenna_t, antenna_r, R, k)
-    Rt = sqrt(antenna_t(1,:).^2 + R^2 + antenna_t(3,:).^2);
-    Rr = sqrt(antenna_r(1,:).^2 + R^2 + antenna_r(3,:).^2);
+    Rt = sqrt(antenna_t(2,:).^2 + R^2 + antenna_t(3,:).^2);
+    Rr = sqrt(antenna_r(2,:).^2 + R^2 + antenna_r(3,:).^2);
     phNF = -k * (Rt(:) + Rr(:).' - 2*R);
 end
