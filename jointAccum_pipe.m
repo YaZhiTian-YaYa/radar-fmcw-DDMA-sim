@@ -1,4 +1,4 @@
-function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0, dims, drawFigs)
+function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, d_azi, dims, drawFigs)
 %JOINTACCUM_PIPE 非相参积累 + DDM解模糊选阶 + 通道重排 + 方位维FFT(64元流型版)
 %   (参考 参考\rsp_pipeline_ReWrite\pipeline\jointAccum_pipe.m, 适配点:
 %    ddmShift 用我们自己的 DDMA 编码(find(encodeSeq)-1);
@@ -23,7 +23,7 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0
     %% 第二步: 相参积累(通道校正 -> 按虚拟阵元位置重排 -> 方位维FFT)
     % chanPosLut: 64个虚拟通道 -> 128点方位FFT中阵元位置查找表(由 A_manifold 的 x 坐标生成;
     % 同一 x 位置的多个通道用累加实现阵元合成; 平移到从 1 开始)
-    xvGrid = A_manifold(2, :) / FFT_d0;                      % 虚拟阵元 y(方位, 车身系, 格)
+    xvGrid = A_manifold(2, :) / d_azi;                      % 虚拟阵元 y(方位, 车身系, 格)
     chanPosLut = double(round(xvGrid - min(xvGrid)) + 1);    % [1×64], TX内循环/RX外循环
     chanCalib = cCal(:);                                     % 0°校准表(64×1, 顺序与快照一致)
     aziFftIn = zeros(dims.aziFftLen, dims.rngUse, dims.subBins);      % 方位FFT输入 [方位×距离×子带](第二维是距离!)

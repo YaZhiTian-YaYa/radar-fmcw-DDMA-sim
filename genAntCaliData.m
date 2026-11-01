@@ -1,4 +1,4 @@
-function [AntCaliData, rowLut] = genAntCaliData(A_manifold, FFT_d0, lambda, cCal, aziRange, eleRange)
+function [AntCaliData, rowLut] = genAntCaliData(A_manifold, d_azi, lambda, cCal, aziRange, eleRange)
 %GENANTCALIDATA 生成虚拟天线标定数据(理论导向矢量 × 0°校准), 结构体名与参考一致
 %   [AntCaliData, rowLut] = genAntCaliData(A_manifold, FFT_d0, lambda, cCal, aziRange, eleRange)
 %   替代参考 AdcAndParam.mat 中的实测 AntCaliData:

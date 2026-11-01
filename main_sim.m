@@ -83,25 +83,26 @@ TX_A_dB = [0 -0.6 -0.25 -1.0 -0.4 -0.15 -0.75 -0.3];   % TX 通道幅度差(dB, 
 RX_A_dB = [-0.35 -0.7 -0.1 0 -0.9 -0.45 -0.2 -0.55];   % RX 通道幅度差(dB)
 TX_A = 10.^(TX_A_dB/20);       % 线性(最大=1; 通道只会差不会好)
 RX_A = 10.^(RX_A_dB/20);
-FFT_d0 = 1.865e-3;             % 阵元栅格间距 (m), 天线坐标 = 整数栅格 × FFT_d0
+d_azi = 1.865e-3;              % 方位基础栅格间距 (m), 天线 y 坐标 = 整数栅格 × d_azi
+d_ele = 1.865e-3;              % 俯仰基础栅格间距 (m), 天线 z 坐标 = 整数栅格 × d_ele(两者独立可改)
 % ---- [旋钮] 样件版本: B1 / B2 / CT 布阵不同, 其余参数(TX_A/RX_A 通道差、编码、波形)共用
 %      (若另有实测通道差/隔离度, 再按样件分档)。切换样件会自动重跑校准(缓存签名含阵列)。
 sampleVer = 'CT';
 switch upper(sampleVer)
     case 'B1'                  % B1 样件布阵
-        antenna_t = [[0;30;3],[0;27;3],[0;20;3],[0;33;9],[0;24;0],[0;14;3],[0;7;3],[0;0;3]] * FFT_d0;
-        antenna_r = [[0;26;15],[0;29;18],[0;21;18],[0;33;18],[0;12;18],[0;4;18],[0;11;0],[0;0;18]] * FFT_d0;
+        antenna_t = [[0;30;3],[0;27;3],[0;20;3],[0;33;9],[0;24;0],[0;14;3],[0;7;3],[0;0;3]] .* [0; d_azi; d_ele];
+        antenna_r = [[0;26;15],[0;29;18],[0;21;18],[0;33;18],[0;12;18],[0;4;18],[0;11;0],[0;0;18]] .* [0; d_azi; d_ele];
     case 'B2'                  % B2 样件布阵(2026-10-29 用户提供)
-        antenna_t = [[0;6;14],[0;9;14],[0;16;14],[0;0;8],[0;12;20],[0;22;14],[0;29;14],[0;36;14]] * FFT_d0;
-        antenna_r = [[0;9;3],[0;6;0],[0;14;0],[0;2;0],[0;23;0],[0;31;0],[0;27;21],[0;35;0]] * FFT_d0;
+        antenna_t = [[0;6;14],[0;9;14],[0;16;14],[0;0;8],[0;12;20],[0;22;14],[0;29;14],[0;36;14]] .* [0; d_azi; d_ele];
+        antenna_r = [[0;9;3],[0;6;0],[0;14;0],[0;2;0],[0;23;0],[0;31;0],[0;27;21],[0;35;0]] .* [0; d_azi; d_ele];
     case 'CT'                  % CT 样件布阵(2026-10-29 用户 Visio 实测)
         % 原点 = T8/R7 (x=0, TX 主行 z=0); 列序 = TX1..TX8 / RX1..RX8(T1 最右, T8 最左)。
         % x: T=33/29/25/15/23/12/5/0, R=32/35/19/26/12/19/0/5 —— TX 方位最近间隔
         %   2×半波长(T5↔T3), RX 最近 3×半波长(R1↔R2)。
         % z: 全在 3×半波长行栅格 —— TX 主行 0(T6 单独 6), R3 单独 3,
         %   T5/R1 在 15(贴 RX 主行下方 3), RX 主行(R2/R4..R8) 18。
-        antenna_t = [[0;33;0],[0;29;0],[0;25;0],[0;15;0],[0;23;15],[0;12;6],[0;5;0],[0;0;0]] * FFT_d0;
-        antenna_r = [[0;32;15],[0;35;18],[0;19;3],[0;26;18],[0;12;18],[0;19;18],[0;0;18],[0;5;18]] * FFT_d0;
+        antenna_t = [[0;33;0],[0;29;0],[0;25;0],[0;15;0],[0;23;15],[0;12;6],[0;5;0],[0;0;0]] .* [0; d_azi; d_ele];
+        antenna_r = [[0;32;15],[0;35;18],[0;19;3],[0;26;18],[0;12;18],[0;19;18],[0;0;18],[0;5;18]] .* [0; d_azi; d_ele];
     otherwise
         error('sampleVer 只支持 ''B1'' | ''B2'' | ''CT''');
 end
@@ -224,7 +225,7 @@ antPat = genAntPattern(size(antenna_t, 2), size(antenna_r, 2));
 [figPatTx, figPatRx, figPatTxCut, figPatRxCut, figPatTxPh, figPatRxPh] = antPatDraw(antPat);
 
 %% ---- 图7/图8: 阵列几何(设计原始整数栅格, 居中前画, 便于对照设计查错) ----
-[figPhys, figVirt] = plotArrayGeom(antenna_t, antenna_r, arrayManifold(antenna_t, antenna_r), FFT_d0);
+[figPhys, figVirt] = plotArrayGeom(antenna_t, antenna_r, arrayManifold(antenna_t, antenna_r), d_azi, d_ele);
 
 % ---- 阵列整体居中(TX/RX 同一平移量): 只移相位参考, 不改任何相对位置 ----
 antShift = [0; ...
@@ -243,7 +244,7 @@ nLongRow = max(nInRowArr);                  % 最长一行阵元数(当前布阵
 dims.nLongRow = nLongRow;
 fprintf('阵列统计       : 最长一行 %d 个虚拟阵元(共 %d 行)\n', nLongRow, numel(zRowsU));
 % 图9/图10: 居中后对照图, 应是图7/图8 的纯平移(可含半格偏移)
-[figPhysC, figVirtC] = plotArrayGeom(antenna_t, antenna_r, A_manifold, FFT_d0);
+[figPhysC, figVirtC] = plotArrayGeom(antenna_t, antenna_r, A_manifold, d_azi, d_ele);
 set(figPhysC, 'Name', 'fig9_PhysArrayC');
 set(figVirtC, 'Name', 'fig10_VirtArrayC');
 
@@ -334,10 +335,10 @@ eleUa  = asind(min(1, lambda/(2*dzRow)));                % 俯仰无模糊范围
 eleRange = [-floor(eleUa), floor(eleUa), 1];
 fprintf('DOA 俯仰网格    : ±%d° (无模糊 ±%.1f°, 俯仰行间距 %.3f mm)\n', ...
         floor(eleUa), eleUa, dzRow*1e3);
-[AntCaliData, rowLut] = genAntCaliData(A_manifold, FFT_d0, lambda, cCal, [-75 75 1], eleRange);
+[AntCaliData, rowLut] = genAntCaliData(A_manifold, d_azi, lambda, cCal, [-75 75 1], eleRange);
 
 % ---- 校准遍检测链(积累→CFAR→DBF, 为 RCS 标定提供角反仿真测量幅度; 静默不画图) ----
-accumCal = jointAccum_pipe(fftCal, ddmShift, cCal, A_manifold, FFT_d0, dims, false);
+accumCal = jointAccum_pipe(fftCal, ddmShift, cCal, A_manifold, d_azi, dims, false);
 [~, detCal, tgtCal] = targetDetect_pipe(noiseCal, accumCal, cfarCfg, dims, false);
 [tgtCal, detCal]    = doaEstimate_pipe(detCal, tgtCal, AntCaliData, rowLut, lambda, dims, false);
 
@@ -368,7 +369,7 @@ fftCfg  = win2dfft(adcRawData, winType);
 figRxNc = rxNonCoh_pipe(fftCfg, dims);
 
 %% ---- DDM 解模糊选阶 + 非相参/相参积累(64 元流型方位 FFT; 图26; 校准表 cCal 来自校准遍) ----
-accumCfg = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, FFT_d0, dims);
+accumCfg = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, d_azi, dims);
 
 %% ---- 两级 CFAR(粗检 DACFAR + 峰态精判; 图27) ----
 [accumCfg, detCfg, tgtOut] = targetDetect_pipe(noiseCfg, accumCfg, cfarCfg, dims);
