@@ -62,20 +62,28 @@ function [figPhys, figVirt] = plotArrayGeom(antenna_t, antenna_r, A_manifold, d_
         end
     end
     figVirt = figure('Position', figPos, 'Name', 'fig8_VirtArray');
-    scatter(vInt(1, :), vInt(2, :), 50, 'ko', 'filled');
-    % 每一行(z 相同)内按 x 排序, 相邻阵元的标注一上一下交替, 避免横向字重叠;
-    % 水平方向居中对齐(不做 X 偏移)
-    dy = zeros(1, nTX*nRX);
-    zRows = unique(vInt(2, :));
-    for r = 1:numel(zRows)
-        rowIdx = find(vInt(2, :) == zRows(r));
-        [~, ord] = sort(vInt(1, rowIdx));
-        rowIdx = rowIdx(ord);                        % 行内按 x 排序
-        upDown = 1 - 2*mod(0:numel(rowIdx)-1, 2);    % +1 上 / -1 下 交替
-        dy(rowIdx) = upDown;
+    % 位置重合检测(0.5 格量化, 吸收半格平移与浮点 ulp 误差): 重合位置红色区分
+    [~, ~, pos_id] = unique(round([vInt(1, :); vInt(2, :)].' * 2) / 2, 'rows');
+    n_at_pos = accumarray(pos_id, 1);
+    is_dup = n_at_pos(pos_id) > 1;
+    scatter(vInt(1, ~is_dup), vInt(2, ~is_dup), 50, 'ko', 'filled');
+    hold on;
+    if any(is_dup)
+        scatter(vInt(1, is_dup), vInt(2, is_dup), 60, 'ro', 'filled');
+        fprintf('虚拟阵列: %d 个重合位置(红), 涉及 %d 个虚拟元\n', ...
+            sum(n_at_pos > 1), sum(is_dup));
     end
-    text(vInt(1, :), vInt(2, :) + dy*1.2, lab, 'FontSize', 5.5, ...
-         'HorizontalAlignment', 'center');
+    % 标注: 同一位置的多个标注一上一下交替(+/-1.2, +/-2.4...), 避免自重叠
+    for p = 1:numel(n_at_pos)
+        idxs = find(pos_id == p);
+        for q = 1:numel(idxs)
+            lv = 1.2 * ceil(q / 2) * (1 - 2 * mod(q - 1, 2));
+            j = idxs(q);
+            if is_dup(j), tc = [1 0 0]; else, tc = [0 0 0]; end
+            text(vInt(1, j), vInt(2, j) + lv, lab{j}, 'FontSize', 5.5, ...
+                 'HorizontalAlignment', 'center', 'Color', tc);
+        end
+    end
     axis equal; grid on;
     setUnitGrid(vInt(1, :), vInt(2, :));
     xlabel('y (×d_azi)');
