@@ -41,6 +41,9 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
         fprintf(['RCS 窗损补偿   : %s 无固定核不补偿(口径如实)' newline], 'SVA 自适应窗');
     end
 
+    rcsLowConfSepDeg = 3;    % [旋钮] RCS 低置信角间隔阈值(deg): OMP/DML 对内间隔小于此值
+                             %   (≈1.6×波束宽, 36 元半波长 ULA 波束宽 ≈1.84°)时联合 LS 分离
+                             %   病态(κ≈3.5@1°), 单实现 RCS 散布 ±1.5dB —— 打低置信标志供下游加权
     nTgt = numel(tgtOut);
     if nTgt == 0                                   % 空点云(无检测点/目标全出带): 跳过估计
         warning('RCS 估计: 点云为空, 跳过逐点估计');
@@ -94,6 +97,14 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
         tgtOut(t).rcsSeg   = rcsSeg(t);
         tgtOut(t).rcsAmpDb = ampDb(t);
         tgtOut(t).rcsSnrDb = snrDb(t);
+        % RCS 置信标志: 配对成员角间隔 < 阈值 → 低置信(0), 独立点/宽间隔 → 高置信(1)
+        sepP = inf;
+        if isfield(tgtOut, 'ompSepDeg') && ~isempty(tgtOut(t).ompSepDeg)
+            sepP = tgtOut(t).ompSepDeg;                    % OMP 对间隔(配对时双点同存)
+        elseif isfield(tgtOut, 'dmlSepDeg') && ~isempty(tgtOut(t).dmlSepDeg)
+            sepP = tgtOut(t).dmlSepDeg;                    % DML 对间隔
+        end
+        tgtOut(t).rcsConf = double(sepP >= rcsLowConfSepDeg);
     end
 
     % ---------- 逐真值目标对比(场景 targets vs 点云峰值估计; 全部点含第二目标) ----------
@@ -123,8 +134,9 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
         [~, im] = max(rcsDb(idx));                       % 窗内未认领者取最强(认领表防配对两点抢同一点)
         claimedRcs(idx(im)) = true;
         pkDb = rcsDb(idx(im));
-        fprintf('   目标%d: R=%6.1f m 真值 %5.1f dBsm → 峰值估计 %6.1f dBsm (n=%d, 偏差 %+5.1f dB)\n', ...
-            k, targets(k).gate_R*3e8/(2*prm.B), targets(k).rcsDb, pkDb, numel(idx), pkDb - targets(k).rcsDb);
+        confTxt = '低置信';  if tgtOut(idx(im)).rcsConf == 1, confTxt = '高置信'; end
+        fprintf('   目标%d: R=%6.1f m 真值 %5.1f dBsm → 峰值估计 %6.1f dBsm (n=%d, 偏差 %+5.1f dB, %s)\n', ...
+            k, targets(k).gate_R*3e8/(2*prm.B), targets(k).rcsDb, pkDb, numel(idx), pkDb - targets(k).rcsDb, confTxt);
     end
 
     % ---------- 绘图(图23, 2×2) ----------

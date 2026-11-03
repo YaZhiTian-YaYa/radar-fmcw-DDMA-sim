@@ -164,6 +164,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         tgtOut(t).dmlW1   = ampW(1);  tgtOut(t).dmlW2 = ampW(2);   % 线性幅度(RCS 推算用)
         tgtOut(t).dmlPass = dmlPass;
         if dmlPass && tgtOut(t).splitTag == 0, tgtOut(t).splitTag = 3; end   % DML 点1(母点, 未被 OMP 标过)
+        tgtOut(t).dmlSepDeg = abs(ang1 - ang2);            % DML 对角间隔(deg, 母点存, 追加点继承)
 
         % ---- 通过: 第一目标方位替换为 DML 第一角度, 追加第二目标进点云 ----
         if dmlPass
@@ -174,6 +175,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
             newT.azimuth  = ang2;                            % 第二目标方位
             newT.isDML2nd = 1;
                 newT.splitTag = 4;                            % DML 点2
+                newT.dmlSepDeg = abs(ang1 - ang2);            % 对角间隔(同母点)
             newT.dmlPass  = 0;                               % 追加点不是"被替换的母点", 清标记(否则计数翻倍)
             tgtOut(end+1) = newT;                            % #ok<AGROW> 追加段在云图用 is2 标记
         end

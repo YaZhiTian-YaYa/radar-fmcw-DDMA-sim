@@ -67,6 +67,8 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     [tgtOut.ompW2Db]    = deal(NaN);
     tgtOut(1).splitTag  = 0;                              % 点角色: 0=独立 1=OMP点1 2=OMP点2 3=DML点1 4=DML点2
     [tgtOut.splitTag]   = deal(0);                        % (本模块初始化, DML 不重置只补打)
+    tgtOut(1).ompSepDeg = NaN;                            % OMP 对角间隔(deg, 母点/第二双存)
+    [tgtOut.ompSepDeg]  = deal(NaN);
 
     % ---------- OMP 两级门限 ----------
     % 处理级(宽): 性能较好范围 ±50°、|x|≤30m 内的点【都做】OMP —— 关心的是这个
@@ -143,8 +145,11 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
                 newT.azimuth  = ang2;                        % 第二目标方位
                 newT.isOMP2nd = 1;
                 newT.splitTag = 2;                            % OMP 点2
+                pairSep = abs(ang2 - tgtOut(t).azimuth);      % 对角间隔(双点同存, rcsConf 用)
+                newT.ompSepDeg = pairSep;
                 tgtOut(end+1) = newT;
                 tgtOut(t).splitTag = 1;                       % OMP 点1(母点)
+                tgtOut(t).ompSepDeg = pairSep;
             else
                 n2ndDrop = n2ndDrop + 1;                     % 通过判定但超出输出范围 → 删
             end
