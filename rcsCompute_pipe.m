@@ -1,4 +1,4 @@
-function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, prm, targets, rcsCfg)
+function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, prm, targets, rcsCfg, winType)
 %RCSCOMPUTE_PIPE RCS 估计: 对全部点云逐点算 RCS, 写回点云并绘图(SNR 口径)
 %   [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData, rowLut, ...
 %                                              dims, prm, targets, rcsCfg)
@@ -23,6 +23,24 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
     chanAzi  = find(rowLut(aziRowBest, :));
     A_dbf    = conj(AntCaliData.aziSteerVec(chanAzi, :));    % 信号模型域字典
 
+    % ---------- 亚bin窗损补偿(汉宁核同 win2dfft; SVA 自适应无固定核不补) ----------
+    % 距离维: 逐点用亚bin插值偏移精确补; 多普勒维: DDMA 16 槽后亚bin相位不可逐点知,
+    % 按目标速度均匀分布取窗响应均值(期望口径) —— 角反侧(rcsCalibrate)用其确定性
+    % 耦合位置精确补, 两侧同折算到"bin 对中"口径, RCS 不再随 bin 位置抖动
+    doWinComp = nargin >= 9 && strcmpi(winType, 'Hanning');
+    if doWinComp
+        % 多普勒维常数: 16 相位全链扫描标定(2026-11-03, gate_R=285 整数 bin 单目标;
+        % 理论均值 +1.75 dB 下偏差均值 +2.12 / std 0.63 -> 净共模 = −0.37 dB)。
+        % 差异来源: 实际幅度是"峰分裂邻点 max 选择"读数(赢家常为 0.5~0.6 bin 偏移的
+        % 邻点), 与固定 bin 窗读不是同一口径, 无闭式 —— 照 winStat 口径收实测标定常数;
+        % 残差散布 ±0.6 dB 为选择统计固有, 如实保留
+        compDopDb = -0.37;
+        fprintf(['RCS 窗损补偿   : 距离维逐点(亚bin插值偏移) + 多普勒维扫描标定 %+.2f dB(16 相位全链标定, 残差散布 ±0.6 dB)' newline], compDopDb);
+    else
+        compDopDb = 0;
+        fprintf(['RCS 窗损补偿   : %s 无固定核不补偿(口径如实)' newline], 'SVA 自适应窗');
+    end
+
     nTgt = numel(tgtOut);
     if nTgt == 0                                   % 空点云(无检测点/目标全出带): 跳过估计
         warning('RCS 估计: 点云为空, 跳过逐点估计');
@@ -42,10 +60,18 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
             aDbl = tgtOut(t).ompW2Db;
         elseif tgtOut(t).isDML2nd == 1             % DML 第二目标: 用 DML 联合 LS 权重
             aDbl = tgtOut(t).dmlW2Db;
+        elseif tgtOut(t).ompHas2nd && ~isnan(tgtOut(t).ompW1Db)
+            aDbl = tgtOut(t).ompW1Db;              % OMP 对的母点: 联合第一分量(去邻目标泄漏, 与第二目标对称)
+        elseif tgtOut(t).dmlPass && ~isnan(tgtOut(t).dmlW1Db)
+            aDbl = tgtOut(t).dmlW1Db;              % DML 对的母点: 联合第一分量(ampW(1), dmlRefine 已存)
         else                                       % 原始点: 当前方位的 LS 投影幅度
             x = double(detCfg.doaChanIn(t, chanAzi)).';
             atom = steerFitAt(A_dbf, aziGrid, double(tgtOut(t).azimuth));
             aDbl = 20*log10(abs((atom' * x) / (atom' * atom)) + eps);
+        end
+        if doWinComp                                     % 亚bin窗损: 距离逐点 + 多普勒均值
+            dRt = abs((tgtOut(t).rangIdx - 1) - double(tgtOut(t).range)/dims.DeltaR);
+            aDbl = aDbl + winScalDb(dRt, dims.rngPts) + compDopDb;
         end
 
         R = double(tgtOut(t).range);               % 插值距离 (m)
@@ -75,6 +101,7 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
     % 同 RD 的多目标(如 3°/4.5° 对)用方位约束 ±4° 区分 —— 匹配范围含 OMP/DML
     % 第二目标点(它们才是分离出来的那个目标的代表点)
     fprintf('RCS 逐目标对比  : 真值 vs 点云峰值估计(含OMP/DML第二目标, RD+方位邻域匹配)\n');
+    claimedRcs = false(1, nTgt);   % 一对一分配: 已被某真值认领的点不再给下一个(角距<窗口时两真值会抢同一点)
     if ~isfield(prm, 'stepDir') || isempty(prm.stepDir), sdR = 1; else, sdR = prm.stepDir; end
     for k = 1:numel(targets)
         dopC = mod(targets(k).gate_D + sdR*prm.cr*prm.B/(dims.dopBinNum-1) * ...
@@ -86,9 +113,15 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
         % 窗内可能含同 RD 的邻近角目标(如 3°/4.5° 对, 间隔仅 1.5°)与弱旁瓣/鬼影点:
         % 先把方位门限收紧到真值 ±1° 再取最强(窄门能分开 1.5° 对; 强者优先排除
         % 恰好压在真值方位上的弱鬼影), 窄门无点才回退 ±4° 宽门
-        idxN = idx(abs([tgtOut(idx).azimuth] - targets(k).azi) <= 1.0);
+        idxN = idx(abs([tgtOut(idx).azimuth] - targets(k).azi) <= 1.0 & ~claimedRcs(idx));
+        if isempty(idxN)                          % 无未认领点: 回退全部窄门点(含已认领)
+            idxN = idx(abs([tgtOut(idx).azimuth] - targets(k).azi) <= 1.0);
+        end
         if ~isempty(idxN), idx = idxN; end
-        [~, im] = max(rcsDb(idx));               % 窄门内最强点 = 目标峰值幅度
+        % 一对一最近角分配(配对两目标角距可小于 ±1° 窗, 各取最强会选中同一点):
+        % 先按 |方位−真值| 最近, 平手再比 rcsDb; 认领后不再给下一个真值
+        [~, im] = max(rcsDb(idx));                       % 窗内未认领者取最强(认领表防配对两点抢同一点)
+        claimedRcs(idx(im)) = true;
         pkDb = rcsDb(idx(im));
         fprintf('   目标%d: R=%6.1f m 真值 %5.1f dBsm → 峰值估计 %6.1f dBsm (n=%d, 偏差 %+5.1f dB)\n', ...
             k, targets(k).gate_R*3e8/(2*prm.B), targets(k).rcsDb, pkDb, numel(idx), pkDb - targets(k).rcsDb);
@@ -136,4 +169,15 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
     title('点云 x-y 位置 (颜色=RCS, 星=角反)');
     sgtitle(sprintf('RCS 估计 (角反 %.0f dBsm 标定, K0=%.1f dB): 近场 %d 点 / 远场 %d 点', ...
         rcsCfg.corner.sigDb, rcsCfg.K0Seg(1), sum(rcsSeg == 1), sum(rcsSeg == 2)));
+end
+
+function cDb = winScalDb(delta, N)
+%WINSCALDB 汉宁窗(对称式, 同 win2dfft 的 hanning())归一化峰响应补偿量(dB >= 0):
+%   单音偏移 |delta| bin 时峰 bin 幅度相对 bin 对中的损失; delta 可为向量
+w  = hanning(N);
+nn = (0:N-1).';
+cDb = zeros(size(delta));
+for k = 1:numel(delta)
+    cDb(k) = -20*log10(abs(w.'*exp(-1i*2*pi*delta(k)*nn/N)) / sum(w));
+end
 end

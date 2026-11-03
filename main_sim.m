@@ -87,8 +87,11 @@ d_azi = 1.865e-3;              % 方位基础栅格间距 (m), 天线 y 坐标 =
 d_ele = 1.865e-3;              % 俯仰基础栅格间距 (m), 天线 z 坐标 = 整数栅格 × d_ele(两者独立可改)
 % ---- [旋钮] 样件版本: B1 / B2 / CT 布阵不同, 其余参数(TX_A/RX_A 通道差、编码、波形)共用
 %      (若另有实测通道差/隔离度, 再按样件分档)。切换样件会自动重跑校准(缓存签名含阵列)。
-sampleVer = 'CT';
+sampleVer = 'B2';
 switch upper(sampleVer)
+    case 'DEMO'                  % demo 样件布阵(标签须大写: switch 值经 upper())
+        antenna_t = [[0;0;15],[0;7;15],[0;14;15],[0;24;18],[0;33;9],[0;30;15],[0;20;15],[0;27;15]]  .* [0; d_azi; d_ele];
+        antenna_r = [[0;4;0],[0;0;0],[0;12;0],[0;33;0],[0;11;18],[0;26;3],[0;21;0],[0;29;0]].* [0; d_azi; d_ele];
     case 'B1'                  % B1 样件布阵
         antenna_t = [[0;30;3],[0;27;3],[0;20;3],[0;33;9],[0;24;0],[0;14;3],[0;7;3],[0;0;3]] .* [0; d_azi; d_ele];
         antenna_r = [[0;26;15],[0;29;18],[0;21;18],[0;33;18],[0;12;18],[0;4;18],[0;11;0],[0;0;18]] .* [0; d_azi; d_ele];
@@ -104,7 +107,7 @@ switch upper(sampleVer)
         antenna_t = [[0;33;0],[0;29;0],[0;25;0],[0;15;0],[0;23;15],[0;12;6],[0;5;0],[0;0;0]] .* [0; d_azi; d_ele];
         antenna_r = [[0;32;15],[0;35;18],[0;19;3],[0;26;18],[0;12;18],[0;19;18],[0;0;18],[0;5;18]] .* [0; d_azi; d_ele];
     otherwise
-        error('sampleVer 只支持 ''B1'' | ''B2'' | ''CT''');
+        error('sampleVer 只支持 ''DEMO'' | ''B1''  | ''B2'' | ''CT''');
 end
 fprintf('样件           : %s 布阵(TX %d 元 / RX %d 元)\n', upper(sampleVer), ...
         size(antenna_t, 2), size(antenna_r, 2));
@@ -167,7 +170,8 @@ targets(1) = struct('gate_R', 5, 'gate_D', 0, 'azi', 0, 'ele', 0, 'rcsDb', -5, .
                     'rcsPhDeg', 0, 'vTan', 0, 'isCorner', 1);
 T = [ ...
 % ---- 目标表(每行一个目标; rcsPh 列 = 初相 deg, 默认 0) ----
- 200/dims.DeltaR   0  0   0   10   0  0  0];   % 300m 目标
+ 200/dims.DeltaR   0  0   0   10   0  0  0;...
+ 200/dims.DeltaR   0  1   0   8   0  30  0];   % 300m 目标
 for k = 1:size(T, 1)
     vRadK = T(k,2)*dims.Vres;                          % 法向速度 (m/s)
     if T(k,7) == 0                                     % dir=0: Y 向行驶
@@ -290,7 +294,8 @@ if ~calRerun && exist(calCacheFile, 'file') == 2
         fprintf('校准缓存       : 命中(生成于 %s) —— 跳过角反射频仿真, 校准遍图与校准模块照常重跑\n', ...
                 char(S.savedAt, 'yyyy-MM-dd HH:mm:ss'));
         if isfield(S, 'filtChain')
-            hFilt = filtChainDraw(S.filtChain, prm.fs, 2*S.filtChain.chipOsr*prm.fs);  % fig12(显式编号)
+            filtChain = S.filtChain;              % 滤波链身份随缓存走(含 hpf 档位, RCS 标定锚定用)
+            hFilt = filtChainDraw(filtChain, prm.fs, 2*filtChain.chipOsr*prm.fs);  % fig12(显式编号)
         end
     else
         fprintf('校准缓存       : 签名不匹配(射频配置/波形/阵列/角反布设已改) —— 自动重跑并刷新\n');
@@ -305,6 +310,7 @@ if ~cacheOk
     filtChain = struct('chipOsr', rfInfoCal.chipOsr, 'fsAdc', rfInfoCal.fsAdc, ...
                        'nDStg', rfInfoCal.nDStg, 'B_noise', rfInfoCal.B_noise, ...
                        'lpfFc', rfInfoCal.lpfFc, 'lpfOrder', rfInfoCal.lpfOrder, ...
+                       'hpf1Fc', rfInfoCal.hpf1Fc, 'hpf2Fc', rfInfoCal.hpf2Fc, ...
                        'hbFc', rfInfoCal.hbFc, 'hbR', rfInfoCal.hbR, 'hbH', {rfInfoCal.hbH}, ...
                        'hbCompOn', rfInfoCal.hbCompOn, 'compFreezeV', rfInfoCal.compFreezeV, ...
                        'bComp', {rfInfoCal.bComp});
@@ -345,7 +351,7 @@ accumCal = jointAccum_pipe(fftCal, ddmShift, cCal, A_manifold, d_azi, dims, fals
 %% ---- RCS 标定(角反 SNR 比值法; 图19) ----
 % σ_dB = SNR + 40log10(R) + K0; SNR = |α|²/该门噪底, 与 IF 滤形无关
 % (信号与噪底同 bin 同滤形, 无需知道滤波器形状, 只用噪底这一链路自测量)
-rcsCfg = rcsCalibrate_pipe(tgtCal, detCal, AntCaliData, rowLut, dims, prm, targetsCal, calibInfo, noiseCal);
+rcsCfg = rcsCalibrate_pipe(tgtCal, detCal, AntCaliData, rowLut, dims, prm, targetsCal, calibInfo, noiseCal, accumCal, fftCal, filtChain, winType);
 
 %% ================== 第二遍测量: 目标场景(消费第一遍的校准数据) ==================
 % 不再重跑 calib0deg/RCS 标定 —— 积累用 cCal、测角用 AntCaliData、RCS 用 rcsCfg,
@@ -406,7 +412,7 @@ seedR    = targets(seedTgtO).gate_R + 1;         % 距离 bin (1 起)
 seedD    = round(dopC3) + 1;                     % 多普勒 bin (1 起, 含耦合)
 [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, ...
                                           dims, thr2ndDb, seedR, seedD);
-fprintf('OMP 角度超分辨 : 判定出OMP第二目标 %d 个 (判定门限 %d dB), 另 %d 个超出输出范围(±20°/±25m)删除, 处理门限外跳过 %d 点\n', ...
+fprintf('OMP 角度超分辨 : 判定出OMP第二目标 %d 个 (判定门限 %d dB), 另 %d 个超出输出范围(±90°/±300m)删除, 处理门限外跳过 %d 点\n', ...
         ompCfg.n2nd, thr2ndDb, ompCfg.n2ndDrop, ompCfg.nGate);
 % OMP 阶段点云快照(图34 用; DML 还会改写方位)
 stageOmp = struct('azi', [tgtOut.azimuth], 'rng', [tgtOut.range], ...
@@ -428,6 +434,13 @@ seedD    = round(dopC) + 1;                      % 多普勒 bin (1 起, 含耦�
 fprintf('DML 角度超分辨 : 判定出第二目标 %d 个 (门限 %g dB); 门限跳过 %d 点; 实做 DML %d 点 (耗时 %.1f s)\n', ...
         dmlCfg.nDML2nd, thrDmlDb, dmlCfg.nGate, dmlCfg.nDone, toc(tDml));
 
+%% ---- 点角色标志(splitTag): 0=独立 1=OMP点1 2=OMP点2 3=DML点1 4=DML点2(打印/下游用) ----
+% OMP/DML 均完成后统一归类; 判定优先级: 第二目标标志优先于母点标志(OMP 先于 DML)
+splitNames = {'独立点','OMP点1','OMP点2','DML点1','DML点2'};   % splitTag 由 OMP/DML 模块在判定处打(单一事实来源)
+tagCnt = accumarray([tgtOut.splitTag].' + 1, 1, [5 1]);   % splitTag 0 基, accumarray 需正下标
+fprintf(['点角色统计      : %s' newline], strjoin(cellfun(@(n, nm) sprintf('%s×%d', nm, n), ...
+    num2cell(tagCnt), splitNames(:), 'UniformOutput', false), ' | '));
+
 %% ---- 真值目标图(图33; 与点云图同口径, 对比看漏检/虚假点) ----
 figTruth = targetTruthDraw(targets, prm, dims);
 
@@ -439,7 +452,7 @@ stageDml = struct('azi', [tgtOut.azimuth], 'rng', [tgtOut.range], ...
 figCmpAzi = compareAziRDraw(targets, dims, stageDbf, stageOmp, stageDml);
 
 %% ---- RCS 估计(逐点算 RCS 写回点云; 图35; 标定常数 rcsCfg 来自第一遍校准) ----
-[tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, prm, targets, rcsCfg);
+[tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, prm, targets, rcsCfg, winType);
 
 %% ---- 链路预算审计(解析 vs 仿真测量; snrAnaCalc 局部函数; 仿真测量口径 = 点云 nonCohSNR) ----
 % 统一物理口径: SNR = Pr − 10lg(kT·NF) + 10lg(Ts) + 10lg(nChirps) + winStat − 3.0×(实采)
@@ -449,7 +462,12 @@ figCmpAzi = compareAziRDraw(targets, dims, stageDbf, stageOmp, stageDml);
 % 看到的同一数字。功率平均不改均值 SNR(TX/RX 侧同理) → 解析式与单线同形, 仅 winStat
 % 随度量口径重标定。对比用目标临时改近改大(用户口径, 防弱线波动); 换回弱目标后
 % 单实现散布 ±2~3 dB 属口径内正常(种子已固定, 可复现)。
-winStatTbl = struct('HANNING', -2.4, 'SVA', -1.4);  % [口径标定] 窗与统计净项, 随窗类型分档
+winStatTbl = struct('HANNING', -4.2, 'SVA', -1.4);   % [口径标定] 窗与统计净项, 随窗类型分档
+                               % 【2026-11-04 重标定】16 多普勒相位×整数距离 bin 全链扫描,
+                               % 审计非相参残差均值 −1.76(std 0.54, 随谱线落相位周期摆动) →
+                               % Hanning −4.2(旧 −2.4 系 300m 弱目标单位置标定, 不含分数 bin
+                               % 距离/多普勒相位摆动, 低估 ~1.8)。残差散布: ±0.5(多普勒相位)+
+                               % ±0.6(距离分数 bin) 属单实现统计, 勿再凑。SVA 档位待同法重标。
                                % (2026-10-29 单 bin 口径/同种子/300m 弱目标 5 种子标定:
                                % Hanning −2.40±0.3, SVA −1.41±0.3 —— SVA 比 Hanning 好
                                % ~1.0dB = 收回矩形 ENBW 1.76dB 的大半; 强目标单实现散布
@@ -461,6 +479,26 @@ cohStat95 = cohStatCalc(dims.chanTotal, dims.aziFftLen, size(antenna_r,2));
                                % 参考抬升的 max-of-bin 统计 —— 蒙特卡洛计算(cohStatCalc.m),
                                % 随雷达结构自动变(16T16R → nChan=256 重算), 勿写死常数。
                                % 审计残差(理论略优于仿真, ~2dB 口径小量)如实保留, 勿凑差
+%% ---- 峰值拟合对比(独立模块 peakFit_pipe: 解耦试验, 不改上游模块/点云; 只读数据三方对比) ----
+fitAnaFun = @(Rm, rcsT, eleT) snrAnaCalc(rfInfo, prm, Rm, rcsT, nChirps, size(antenna_r,2), ...
+    isreal(adcRawData), winStat95, [], cohStat95, cohGainDbf(A_manifold(3,:).', lambda, eleT));
+fitRep = peakFit_pipe(tgtOut, accumCfg, noiseCfg, fftCfg, rcsCfg, AntCaliData, rowLut, ...
+                      dims, prm, winType, targets, fitAnaFun);
+% ---- 采纳拟合 RCS(2026-11-04 16 相位仲裁胜出: std 0.52 对 0.63; 均值 +0.11 如实保留) ----
+% 生产口径: 拟合只用【本点自身】RD/积累数据 + 暗箱角反标定量(K0/噪底/滤形) + 芯片已知
+% 配置(HPF 档位/窗类型); 无真值、无其它目标数据。峰点写回, 延伸点/回落点保持原值;
+% fig35(RCS 图)画于写回前(原始口径证据图), 点云 rcsDb 为拟合后值。
+adoptRcsFit = true;                                    % [旋钮] true=峰点 RCS 用拟合值写回
+if adoptRcsFit
+    nAdopt = 0;
+    for t = 1:numel(tgtOut)
+        if fitRep.isPeak(t) && ~isnan(fitRep.rcsFit(t))
+            tgtOut(t).rcsDb = fitRep.rcsFit(t);  nAdopt = nAdopt + 1;
+        end
+    end
+    fprintf(['RCS 拟合采纳     : 写回 %d/%d 峰点(延伸点保持原始读数)' newline], nAdopt, numel(tgtOut));
+end
+
 for k = 1:numel(targets)
     Rm  = targets(k).gate_R * dims.DeltaR;        % 目标距离 (m)
     % DBF 相参增益(实际阵列, cohGainDbf.m, 通道幅度归一化——算法方案口径, 幅度差均
@@ -493,6 +531,10 @@ for k = 1:numel(targets)
             k, Rm, an.Pr_dBm, an.psd_dBmHz, an.tTerm, an.dTerm, an.chTerm, an.winStat, an.sampP, an.filtG, ...
             an.pllTerm, an.selfFloor, an.SNR_dB, tgtOut(tK).rangIdx-1, tgtOut(tK).dopplerIdx-1, ...
             meas, meas - an.SNR_dB);
+    if exist('fitRep','var') && ~isnan(fitRep.ncSnrFit(tK))
+        fprintf(['   审计·非相参拟合 : 仿真值(拟合) %.1f dB, 差 %+.1f dB(原始 %.1f / 差 %+.1f)' newline], ...
+            fitRep.ncSnrFit(tK), fitRep.ncSnrFit(tK) - an.SNR_dB, meas, meas - an.SNR_dB);
+    end
     % 相参口径对比: 理论 = 单线解析 + 通道相参(nTX·nRX) + 角度维取峰统计项(cohStat95 =
     % 理论统计值 −7.2dB), 仿真 = 点云 cohSNR(方位峰功率/相参噪底中位)。角度维取投影
     % (max) → 噪底参考抬高, 理论会略优于仿真(残差如实显示, 不凑常数)。
@@ -500,6 +542,10 @@ for k = 1:numel(targets)
     fprintf('链路预算审计·相参  : 目标%d @%.0f m(ele=%g°): 单线 %.1f + 通道相参 %.1f(阵列DBF, 公式%.1f) + 角度维统计 %.1f(理论) = %.1f dB | 仿真值(点云 cohSNR) %.1f dB, 差 %+.1f dB\n', ...
             k, Rm, targets(k).ele, an.SNR_dB, an.cohTerm, 10*log10(numel(ddmShift)*size(antenna_r,2)), ...
             an.cohStat, an.SNRcoh_dB, measC, measC - an.SNRcoh_dB);
+    if exist('fitRep','var') && ~isnan(fitRep.cohSnrFit(tK))
+        fprintf(['   审计·相参拟合   : 仿真值(拟合) %.1f dB, 差 %+.1f dB(原始 %.1f / 差 %+.1f)' newline], ...
+            fitRep.cohSnrFit(tK), fitRep.cohSnrFit(tK) - an.SNRcoh_dB, measC, measC - an.SNRcoh_dB);
+    end
 end
 
 %% ---- 后续模块插入位置: 点云/跟踪(吃 tgtOut) ----
@@ -507,7 +553,7 @@ end
 
 %% ==================== 保存图片(PPT 用, 每次运行覆盖) ====================
 % 按图窗原尺寸渲染, 再重写 PNG 的 DPI: 插入 PPT 时默认宽度 ≈ outW_cm (16 cm)
-saveDir = 'F:\Work3\CH_NEW_95_射频_DDMA';
+saveDir = fullfile(fileparts(mfilename('fullpath')));   % PNG 存工程自身目录(随工程走, 换机器免改)
 % 钩子: saveFigDir 改存图目录(批量案例); skipFigs 为不保存的文件名
 if exist('saveFigDir', 'var') && ~isempty(saveFigDir), saveDir = saveFigDir; end
 if ~exist('skipFigs', 'var'), skipFigs = {}; end

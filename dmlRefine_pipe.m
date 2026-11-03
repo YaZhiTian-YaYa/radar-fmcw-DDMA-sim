@@ -11,7 +11,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
 %     seedR/seedD 指定做 DML 过程图的目标的 距离bin/多普勒bin(1 起, 容差 ±1 bin;
 %                 注意步进频耦合会使实际 D 序号偏离放置值, 按 RD 图实际位置填)
 %   处理(逐点依次, 算法逻辑与已验证的 dmlAngle 完全一致):
-%     0) 跳过 OMP 第二目标; 门限检查(|DBF方位|≤20° 且 |x|≤25 m, 旋钮见下)超出跳过;
+%     0) 跳过 OMP 第二目标; 门限检查(|DBF方位|≤90° 且 |x|≤300 m, 旋钮见下)超出跳过;
 %     1) K=1 粗搜: 1° 表上最佳单角度(强目标);
 %     2) 残差匹配曲线取候选峰(限于 DBF 主峰 ±dmlSpanDeg 内, 破 39° 边缘假峰)
 %        → 各起点做交替坐标细分(±1° 内 dmlStepDeg 步进 ×3 轮, 表格插值原子);
@@ -48,8 +48,8 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     nStart     = 20;                    % [旋钮] 残差匹配先取的峰数(再按 ±dmlSpanDeg 筛选)
 
     % ---------- DML 处理门限(降低虚假点: 只对近距离/小角度点做 DML) ----------
-    aziLimDeg = 20;                     % [旋钮] 方位角门限: |DBF拟合方位角| 超过则跳过
-    xLimM     = 25;                     % [旋钮] x 位置门限 (m): |x| 超过则跳过
+    aziLimDeg = 90;                     % [旋钮] 方位角门限: |DBF拟合方位角| 超过则跳过【2026-11-04 20→90/25→300: 验证点不因范围被删】
+    xLimM     = 300;                    % [旋钮] x 位置门限 (m): |x| 超过则跳过
 
     nTgtAll = numel(tgtOut);            % 输入点云总数(含 OMP 第二目标)
     nDML2nd = 0;  nGate = 0;  nDone = 0;
@@ -84,7 +84,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         eleM = double(tgtOut(t).elevation);
         xPosT = rngM * cosd(eleM) * sind(azi1);          % x 位置 (m)
 
-        % ---- 门限检查: |方位| ≤ 20° 且 |x| ≤ 25 m; 超出 → 保留 DOA 原结果 ----
+        % ---- 门限检查: |方位| ≤ 90° 且 |x| ≤ 300 m; 超出 → 保留 DOA 原结果 ----
         if abs(azi1) > aziLimDeg || abs(xPosT) > xLimM
             tgtOut(t).dmlGate = 0;
             nGate = nGate + 1;
@@ -146,6 +146,12 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         ang1 = min(bTh1, bTh2);  ang2 = max(bTh1, bTh2);
         ampW = bW;
         if bTh1 > bTh2, ampW = ampW([2 1]); end
+        % 近共线限增益(2026-11-04, 替代能量守恒缩放——LS 重构功率恒≤实测, 缩放恒为 1 无效):
+        % 膨胀在"分裂"里(|W1|²+|W2|² 靠交叉对消压回重构), 根因是 (A'A)^-1 沿共线方向的特征值
+        % 发散。等效岭正则: 最终解用奇异值截断的 pinv(条件数封顶 κ=4, ≈0.7° 间隔等效),
+        % 共线方向的放大受限, 幅值退向"总功率按原子交叠分配"的保守解 —— 母点 +2.3dB 膨胀的修法
+        A2s  = [fitFun(ang1), fitFun(ang2)];
+        ampW = pinv(A2s, max(svd(A2s)) / 4) * x;
 
         % ---- 第二目标判定(残差改善 > 门限 且 间隔可分且限内) ----
         imprDb = 10 * log10(max(J1, eps) / max(bestJ, eps));
@@ -157,6 +163,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         tgtOut(t).dmlW2Db = 20*log10(abs(ampW(2)) + eps);
         tgtOut(t).dmlW1   = ampW(1);  tgtOut(t).dmlW2 = ampW(2);   % 线性幅度(RCS 推算用)
         tgtOut(t).dmlPass = dmlPass;
+        if dmlPass && tgtOut(t).splitTag == 0, tgtOut(t).splitTag = 3; end   % DML 点1(母点, 未被 OMP 标过)
 
         % ---- 通过: 第一目标方位替换为 DML 第一角度, 追加第二目标进点云 ----
         if dmlPass
@@ -166,6 +173,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
             newT.ID       = max([tgtOut.ID]) + 1;
             newT.azimuth  = ang2;                            % 第二目标方位
             newT.isDML2nd = 1;
+                newT.splitTag = 4;                            % DML 点2
             newT.dmlPass  = 0;                               % 追加点不是"被替换的母点", 清标记(否则计数翻倍)
             tgtOut(end+1) = newT;                            % #ok<AGROW> 追加段在云图用 is2 标记
         end
@@ -228,7 +236,8 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
                 Jm(ib, ia) = C0S - real(xS' * A2 * aS);
             end
         end
-        JmDb = 10*log10(Jm / max(min(Jm(:)), eps) + eps);   % NaN/全零守卫(退化数据防 imagesc 崩溃)
+        JmPos = max(real(Jm), 0);            % 负值(θ1=θ2 退化线 inv2x2 近奇异)截 0, real 防复数
+        JmDb  = 10*log10(JmPos / (max([JmPos(:); 0]) + eps) + eps);  % 分母追加 0: Jm 空阵时 max([]) 为 [] 会维度崩
         JmDb(~isfinite(JmDb)) = 0;
         imagesc(fA, fB, JmDb); axis xy; colorbar;
         hold on; plot(seed.ang1, seed.ang2, 'wo', 'MarkerSize', 10);

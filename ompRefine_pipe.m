@@ -65,6 +65,8 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     [tgtOut.ompAng2]    = deal(NaN);
     [tgtOut.ompW1Db]    = deal(NaN);
     [tgtOut.ompW2Db]    = deal(NaN);
+    tgtOut(1).splitTag  = 0;                              % 点角色: 0=独立 1=OMP点1 2=OMP点2 3=DML点1 4=DML点2
+    [tgtOut.splitTag]   = deal(0);                        % (本模块初始化, DML 不重置只补打)
 
     % ---------- OMP 两级门限 ----------
     % 处理级(宽): 性能较好范围 ±50°、|x|≤30m 内的点【都做】OMP —— 关心的是这个
@@ -73,8 +75,8 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     xProcM     = 100;                    % [旋钮] OMP 处理 x 范围 (m)
     % 输出级(窄): OMP 第二目标通过判定后, 还须落在 ±20°、|x|≤25m 内才保留进点云;
     %   范围外真有目标也不关注, 删掉 —— 减少测错(旁瓣/噪声残余误判)产生的杂点
-    aziLimDeg = 20;                     % [旋钮] OMP 第二目标输出方位门限 (deg)
-    xLimM     = 25;                     % [旋钮] OMP 第二目标输出 x 门限 (m)
+    aziLimDeg = 90;                     % [旋钮] OMP 第二目标输出方位门限 (deg)【2026-11-04 20→90/25→300: 验证点不因范围被删】
+    xLimM     = 300;                    % [旋钮] OMP 第二目标输出 x 门限 (m)
     DeltaR    = 3e8/(2*dims.B);         % 距离分辨率 (m)
 
     for t = 1:nTgt
@@ -117,11 +119,14 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
         % ---- 第二角度导向矢量拟合 + 联合 LS ----
         atom2 = steerFitAt(A_omp, aziGrid, ang2);
         W2    = pinv([atom1, atom2]) * x;
+        % 近共线限增益(同 dmlRefine, κ 封顶 4 的奇异值截断): 幅值膨胀在分裂里, 总功率缩放无效
+        A2o = [atom1, atom2];
+        W2  = pinv(A2o, max(svd(A2o)) / 4) * x;
 
         % ---- 写回逐点结果 ----
         tgtOut(t).ompHas2nd = has2;
         tgtOut(t).ompAng2   = ang2;
-        tgtOut(t).ompW1Db   = 20*log10(abs(a1) + eps);
+        tgtOut(t).ompW1Db   = 20*log10(abs(W2(1)) + eps);  % 母点也用联合第一分量(单原子 a1 含邻目标泄漏, 同距同速对不可用)
         tgtOut(t).ompW2Db   = 20*log10(abs(W2(2)) + eps);
 
         % ---- 判定有第二目标 → 输出门限(窄)复核 → 通过才追加点云列表 ----
@@ -137,7 +142,9 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
                 newT.ID       = max([tgtOut.ID]) + 1;
                 newT.azimuth  = ang2;                        % 第二目标方位
                 newT.isOMP2nd = 1;
+                newT.splitTag = 2;                            % OMP 点2
                 tgtOut(end+1) = newT;
+                tgtOut(t).splitTag = 1;                       % OMP 点1(母点)
             else
                 n2ndDrop = n2ndDrop + 1;                     % 通过判定但超出输出范围 → 删
             end
