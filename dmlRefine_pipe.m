@@ -79,6 +79,10 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
             tgtOut(t).dmlGate = 0;                       % OMP 第二目标不做 DML
             continue;
         end
+        if tgtOut(t).ompHas2nd == 1
+            tgtOut(t).dmlGate = 0;                       % OMP 已分辨的母点也不做 DML(2026-11-04):
+            continue;                                    % 同一对被两机制重复分辨 → 图上同一目标
+        end                                              % 同时叠黑圈(OMP第二)+红/青圈(DML), 标注语义失效
         azi1 = double(tgtOut(t).azimuth);                % DBF 拟合方位角(该点第一目标)
         rngM = double(tgtOut(t).rangIdx) * DeltaR;       % 距离 (m)
         eleM = double(tgtOut(t).elevation);
