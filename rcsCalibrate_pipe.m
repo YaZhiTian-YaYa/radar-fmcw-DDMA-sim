@@ -178,13 +178,17 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
         else
             b0c = double(accumCfg.cohPeakPos(rGate, kBestSb));% 兜底: 该单元谱峰位置
         end
-        CpkC = 0;
+        pk3c = zeros(3, 1);  wbc = 0;
         for bb = mod((b0c-2):(b0c), dims.aziFftLen) + 1       % 峰 bin ±1 邻域(回绕)
+            wbc = wbc + 1;
             c5 = double(abs(squeeze(accumCfg.aziFftSpec(bb, rGate-2:rGate+2, kBestSb))).^2);
             [~, pjc] = max(c5(2:4));  pjc = pjc + 1;
             [~, pTk, okP] = hannPk3(c5(pjc-1:pjc+1), dims.rngPts);
-            if okP, CpkC = max(CpkC, pTk); else, CpkC = max(CpkC, c5(3)); end
+            if okP, pk3c(wbc) = pTk; else, pk3c(wbc) = c5(3); end
         end
+        a3c = sqrt(max(pk3c, 0));                             % 角维幅度抛物线(同 cohReadAt)
+        dAc = 2*(a3c(3) - a3c(1)) / (a3c(1) + 2*a3c(2) + a3c(3) + eps);
+        CpkC = (a3c(2) - (a3c(1) - a3c(3)) * max(min(dAc, 2), -2) / 4).^2;
         cohFloorDb = 10*log10(double(accumCfg.cohFloorPow));  % 相参域噪底(标定遍, 含取峰统计)
         snrCohCal  = 10*log10(CpkC * dopRecC + eps) - (cohFloorDb + shapeAt(rGate));
         K0Coh = sigCalDb - snrCohCal - 40*log10(Rcal);

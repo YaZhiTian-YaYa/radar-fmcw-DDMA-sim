@@ -59,16 +59,15 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
             pllCoefHz/1e3, hopHz, pllCompDb(200), pllCompDb(300));
     end
 
-    % ---------- 亚bin窗损补偿(仅 α 域配对点; 汉宁核同 win2dfft; SVA 无固定核不补) ----------
+    % ---------- 亚bin窗损补偿(α 域幅度: 配对点生产 + 独立点对照; SVA 无固定核不补) ----------
+    % 2026-11-04 配对优化: 旧口径 winScal(检测插值距离)+compDop(−0.37 统计) 弃用 —— 前者
+    % 有幻影(插值散布 ±0.75bin, 实测虚补 +2.3dB), 后者只对均值。改为逐点精确恢复(见
+    % 循环内 leafRDb/leafDDb): 距离维相参图峰剖面 hannPk3 恢复比 + 多普勒维 8 码线逐线恢复
     doWinComp = nargin >= 9 && strcmpi(winType, 'Hanning');
     if doWinComp
-        % 多普勒维常数: 16 相位全链扫描标定(2026-11-03, gate_R=285 整数 bin 单目标;
-        % 理论均值 +1.75 dB 下偏差均值 +2.12 / std 0.63 -> 净共模 = −0.37 dB)
-        compDopDb = -0.37;
-        fprintf(['RCS 窗损补偿   : (α域配对点) 距离维逐点(亚bin插值偏移) + 多普勒维扫描标定 %+.2f dB; 相参域读数已含距离/多普勒峰插值, 无需另补' newline], compDopDb);
+        fprintf(['RCS 窗损补偿   : (α域幅度) 逐点精确恢复 = 距离维相参图峰剖面 hannPk3 + 多普勒维 8 码线逐线均值(旧 winScal/compDop 统计口径已弃)' newline]);
     else
-        compDopDb = 0;
-        fprintf(['RCS 窗损补偿   : (α域配对点) %s 无固定核不补偿(口径如实)' newline], 'SVA 自适应窗');
+        fprintf(['RCS 窗损补偿   : (α域幅度) %s 无固定核不补偿(口径如实)' newline], 'SVA 自适应窗');
     end
 
     rcsLowConfSepDeg = 3;    % [旋钮] RCS 低置信角间隔阈值(deg): OMP/DML 对内间隔小于此值
@@ -100,6 +99,41 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
         seg = find(R >= rcsCfg.segR(1:end-1) & R < rcsCfg.segR(2:end), 1);
         if isempty(seg), seg = numel(rcsCfg.K0Seg); end
         az = double(tgtOut(t).azimuth);  el = double(tgtOut(t).elevation);
+        % ---- α 域逐点精确叶损因子(2026-11-04 配对优化): α 幅度取自单 (距离,被抓多普勒) bin
+        % 的快照, 带两维窗叶损 —— 旧口径 winScal(检测插值距离) 有幻影(插值散布 ±0.75bin,
+        % 实测虚补 +2.3), compDop=−0.37 只是统计均值。改为与相参读数同机制的精确恢复:
+        % 距离维 = 相参图该 cell 峰bin 距离剖面 hannPk3 峰/本 bin 功率比; 多普勒维 = 8 根
+        % DDMA 码线逐线恢复等权平均。对内两成员共享同 cell 因子(距离偏移与角 bin 无关)。
+        leafRDb = 0;  leafDDb = 0;
+        if doWinComp && kOk && useCohAvail
+            sbL = mod(double(tgtOut(t).dopplerIdx) - 1, dims.subBins) + 1;
+            if isfield(tgtOut, 'cohPeakIdx') && ~isempty(tgtOut(t).cohPeakIdx)
+                b0L = double(tgtOut(t).cohPeakIdx);
+            else
+                b0L = double(accumCfg.cohPeakPos(tgtOut(t).rangIdx, sbL));  % 追加点的 cell 峰
+            end
+            c5L = double(abs(squeeze(accumCfg.aziFftSpec(b0L, tgtOut(t).rangIdx-2:tgtOut(t).rangIdx+2, sbL))).^2);
+            [~, pjL] = max(c5L(2:4));  pjL = pjL + 1;
+            [~, pkL, okL] = hannPk3(c5L(pjL-1:pjL+1), dims.rngPts);
+            if okL
+                leafRDb = 10*log10(pkL / c5L(3));       % 本 bin → 真峰 功率恢复比
+            end
+            if isfield(accumCfg, 'chirpPosMap')
+                binsL = double(accumCfg.chirpPosMap(tgtOut(t).rangIdx, sbL, :));
+            else
+                binsL = double(tgtOut(t).dopplerIdx);
+            end
+            recsL = ones(numel(binsL), 1);
+            for ttL = 1:numel(binsL)
+                dbL = double(binsL(ttL));
+                dJL = mod((dbL-3):(dbL+1), dims.dopBinNum) + 1;
+                q5L = squeeze(sum(abs(fftCfg.data_sva(tgtOut(t).rangIdx, :, dJL)).^2, 2));
+                [~, qjL] = max(q5L(2:4));  qjL = qjL + 1;
+                [~, QpkL, okDL] = hannPk3(q5L(qjL-1:qjL+1), dims.dopBinNum);
+                if okDL, recsL(ttL) = QpkL / q5L(3); end
+            end
+            leafDDb = 10*log10(mean(recsL));
+        end
         if useCohAvail && ~isPairMem && kOk && isfield(tgtOut, 'cohPeakIdx') && ~isempty(tgtOut(t).cohPeakIdx)
             % ---- 独立点: 相参累积图读数(与角反相参锚定同法 → K0Coh 相消) ----
             [pPkDb, snrC] = cohReadAt(accumCfg, fftCfg, rcsCfg, tgtOut(t), dims);
@@ -123,10 +157,7 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
                 atom = steerFitAt(A_dbf, aziGrid, az);
                 aDbl = 20*log10(abs((atom' * x) / (atom' * atom)) + eps);
             end
-            if doWinComp                                     % 亚bin窗损: 距离逐点 + 多普勒均值
-                dRt = abs((tgtOut(t).rangIdx - 1) - double(tgtOut(t).range)/dims.DeltaR);
-                aDbl = aDbl + winScalDb(dRt, dims.rngPts) + compDopDb;
-            end
+            aDbl = aDbl + leafRDb + leafDDb;            % 精确叶损恢复(旧 winScal/compDop 已弃)
             snrVal = aDbl - (rcsCfg.flatDb + rcsCfg.shapeAt(tgtOut(t).rangIdx));
             ampVal = aDbl;
             K0v    = rcsCfg.K0Seg;
@@ -141,11 +172,7 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
             % 弱目标两域偏差差 = 相参图收益的直接证据
             x = double(detCfg.doaChanIn(t, chanAzi)).';
             atom = steerFitAt(A_dbf, aziGrid, az);
-            aAl  = 20*log10(abs((atom' * x) / (atom' * atom)) + eps);
-            if doWinComp
-                dRt = abs((tgtOut(t).rangIdx - 1) - double(tgtOut(t).range)/dims.DeltaR);
-                aAl = aAl + winScalDb(dRt, dims.rngPts) + compDopDb;
-            end
+            aAl  = 20*log10(abs((atom' * x) / (atom' * atom)) + eps) + leafRDb + leafDDb;
             rcsAlp(t) = (aAl - (rcsCfg.flatDb + rcsCfg.shapeAt(tgtOut(t).rangIdx))) + ...
                         40*log10(R) + pllCompDb(R) + rcsCfg.K0Seg(seg) + rcsCfg.angGainDb(az, el);
         else
@@ -258,13 +285,19 @@ k  = double(pt.rangIdx);  db = double(pt.dopplerIdx);
 sb = mod(db - 1, dims.subBins) + 1;
 b0 = double(pt.cohPeakIdx);                     % 检测链已存的本点方位峰 bin(俯仰压缩自洽)
 nA = size(accumCfg.aziFftSpec, 1);              % 方位 FFT 长度(=dims.aziFftLen)
-Cpk = 0;
-for bb = mod((b0-2):(b0), nA) + 1               % 峰 bin ±1 邻域(回绕): 吸收 FFT 栅格量化
+% 峰 bin ±1 邻域(回绕): 先逐 bin 距离维峰-插值, 再角维 3 点幅度抛物线顶点
+% (纯 max 残余 FFT 栅格纹波 ±0.7dB@1.4°/bin —— 离轴目标散布来源; 角反 bin 居中不受影响)
+pk3 = zeros(3, 1);  wbb = 0;
+for bb = mod((b0-2):(b0), nA) + 1
+    wbb = wbb + 1;
     c5 = double(abs(squeeze(accumCfg.aziFftSpec(bb, k-2:k+2, sb))).^2);
     [~, pj] = max(c5(2:4));  pj = pj + 1;       % 峰-插值两步(同 peakFit: 先内三点最强)
     [~, pTk, okP] = hannPk3(c5(pj-1:pj+1), dims.rngPts);
-    if okP, Cpk = max(Cpk, pTk); else, Cpk = max(Cpk, c5(3)); end   % 肩点回退原格
+    if okP, pk3(wbb) = pTk; else, pk3(wbb) = c5(3); end           % 肩点回退原格
 end
+a3a = sqrt(max(pk3, 0));                        % 角维幅度抛物线: 顶点 = A2 − (A1−A3)·d/4
+dA = 2*(a3a(3) - a3a(1)) / (a3a(1) + 2*a3a(2) + a3a(3) + eps);
+Cpk = (a3a(2) - (a3a(1) - a3a(3)) * max(min(dA, 2), -2) / 4).^2;
 dRec = 1;                                       % 多普勒恢复比: 8 根码线逐线求(肩点回退 1)
 if isfield(accumCfg, 'chirpPosMap')
     binsG = double(accumCfg.chirpPosMap(k, sb, :));    % 每 TX 各自被抓的 chirpPos bin
@@ -302,15 +335,4 @@ d = max(min(d, 0.5), -0.5);                   % 半bin目标 d≈0.5 恰在边�
                                               %   (噪声越过 0.5 就回退会吃下整 1.4dB 叶损)
 w  = hanning(N);  nn = (0:N-1).';
 pk = p(2) * 10^(-20*log10(abs(w.'*exp(-1i*2*pi*d*nn/N)) / sum(w)) / 10);
-end
-
-function cDb = winScalDb(delta, N)
-%WINSCALDB 汉宁窗(对称式, 同 win2dfft 的 hanning())归一化峰响应补偿量(dB >= 0):
-%   单音偏移 |delta| bin 时峰 bin 幅度相对 bin 对中的损失; delta 可为向量
-w  = hanning(N);
-nn = (0:N-1).';
-cDb = zeros(size(delta));
-for k = 1:numel(delta)
-    cDb(k) = -20*log10(abs(w.'*exp(-1i*2*pi*delta(k)*nn/N)) / sum(w));
-end
 end
