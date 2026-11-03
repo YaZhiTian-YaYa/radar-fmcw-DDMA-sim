@@ -105,7 +105,8 @@ function [adcRawData, rfInfo] = rf_sim_core(nSamples, nChirps, TX_A, RX_A, anten
 % ---------- 1. 步进频（chirp 间起始频移） ----------
 coupling_ratio = prm.cr;   % 步进频占比 = 总跳频带宽 / 扫频带宽 B（0 = 无步进频, 由主函数 prm 注入）
 enableHopErr  = true;
-hopErr_Hz     = 6e1;    % 60kHz: 代价 −1.6dB@200m; 56kHz 精确 +2.5dB; 100kHz −3.9dB
+hopErr_Hz     = 5.6e4;  % 56kHz: 精确 +2.5dB(相对 100kHz −3.9dB); 60kHz −1.6dB; 100kHz −3.9dB
+                           %   (2026-11-04 修笔误: 曾误写 6e1=60Hz, 跳频误差实际处于关闭态)
 
                            %   起始频率 = 理想值 + N(0, hopErr_Hz²)。逐 chirp 独立抽取、
                            %   【不累积】——始终以理想频率为基准, 与前面 chirp 的

@@ -30,15 +30,16 @@
 %    OMP 超分辨    ompRefine_pipe.m    图29/28                  → tgtOut(+第二目标)
 %    DML 超分辨    dmlRefine_pipe.m    图31/30                  → tgtOut(+第二目标)
 %    真值/对比图   targetTruthDraw.m   图33  compareAziRDraw  图34
-%    RCS           rcsCompute_pipe.m   图35   (用第一遍 rcsCfg) → tgtOut(+rcsDb)
+%    RCS           rcsCompute_pipe.m   图35   (用第一遍 rcsCfg) → tgtOut(+rcsDb, 独立点相参图口径)
 %    链路预算审计   snrAnaCalc.m + cohStatCalc.m + cohGainDbf.m  无图, "解析 vs 仿真测量"打印
 %  约定: 波形类参数只在 prm、维度类只在 dims 定义一次, 子函数形参接收;
 %  变量名与 参考\ 流水线保持一致。
 %  ========================================================================
 clc; close all;
 % 钩子变量(批量案例 runCases*.m / 门限标定 thrSweep_ompdml.m 注入, 平时不存在)
-clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState;
-rng(4); % 固定随机种子(照 96 修法): 种子只决定单实现统计起伏, 不改物理 —— 泄漏
+clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride;
+if exist('seedOverride', 'var') && ~isempty(seedOverride), rng(seedOverride); else, rng(4); end
+         % 固定随机种子(照 96 修法): 种子只决定单实现统计起伏, 不改物理 —— 泄漏
          % 路径相位/闪烁噪声/PN 实现/量化误差等每次运行完全一致, 结果可复现、
          % 改动前后可逐位对比(换种子 = 换一次统计起伏实现, 结论不应翻转; 96 的
          % seed_sweep 多种子诊断法同样适用)。校准缓存存有 rng 快照, 命中时恢复
@@ -170,8 +171,7 @@ targets(1) = struct('gate_R', 5, 'gate_D', 0, 'azi', 0, 'ele', 0, 'rcsDb', -5, .
                     'rcsPhDeg', 0, 'vTan', 0, 'isCorner', 1);
 T = [ ...
 % ---- 目标表(每行一个目标; rcsPh 列 = 初相 deg, 默认 0) ----
- 200/dims.DeltaR   0  0   0   10   0  0  0;...
- 200/dims.DeltaR   0  1   0   8   0  30  0];   % 300m 目标
+ 200/dims.DeltaR   0  0   0   10   0  0  0];   % 300m 目标
 for k = 1:size(T, 1)
     vRadK = T(k,2)*dims.Vres;                          % 法向速度 (m/s)
     if T(k,7) == 0                                     % dir=0: Y 向行驶
@@ -290,6 +290,9 @@ if ~calRerun && exist(calCacheFile, 'file') == 2
     if isfield(S, 'sig') && isequal(S.sig, calSig)
         adcCal = S.adcCal;  targetsCal = S.targetsCal;
         rng(S.rngState);    % 恢复校准射频结束时的随机流 → 目标遍与全量跑完全一致
+        if exist('seedOverride', 'var') && ~isempty(seedOverride)
+            rng(seedOverride);  % 种子扫描: 目标遍换统计实现(校准遍仍用缓存, 物理不变)
+        end
         cacheOk = true;
         fprintf('校准缓存       : 命中(生成于 %s) —— 跳过角反射频仿真, 校准遍图与校准模块照常重跑\n', ...
                 char(S.savedAt, 'yyyy-MM-dd HH:mm:ss'));
@@ -452,7 +455,10 @@ stageDml = struct('azi', [tgtOut.azimuth], 'rng', [tgtOut.range], ...
 figCmpAzi = compareAziRDraw(targets, dims, stageDbf, stageOmp, stageDml);
 
 %% ---- RCS 估计(逐点算 RCS 写回点云; 图35; 标定常数 rcsCfg 来自第一遍校准) ----
-[tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, prm, targets, rcsCfg, winType);
+% 双域(2026-11-04 用户指令): 独立点 = TXRX 相参累积图读数(弱目标稳, +~18dB 积累),
+% 配对点(OMP/DML 成员) = α 域联合权重(±1° 级对在 1.4°/bin 方位谱内互染, 图读不可分)
+[tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, prm, ...
+    targets, rcsCfg, winType, accumCfg, fftCfg, A_manifold(3, :).', lambda, rfInfo);
 
 %% ---- 链路预算审计(解析 vs 仿真测量; snrAnaCalc 局部函数; 仿真测量口径 = 点云 nonCohSNR) ----
 % 统一物理口径: SNR = Pr − 10lg(kT·NF) + 10lg(Ts) + 10lg(nChirps) + winStat − 3.0×(实采)
@@ -484,11 +490,12 @@ fitAnaFun = @(Rm, rcsT, eleT) snrAnaCalc(rfInfo, prm, Rm, rcsT, nChirps, size(an
     isreal(adcRawData), winStat95, [], cohStat95, cohGainDbf(A_manifold(3,:).', lambda, eleT));
 fitRep = peakFit_pipe(tgtOut, accumCfg, noiseCfg, fftCfg, rcsCfg, AntCaliData, rowLut, ...
                       dims, prm, winType, targets, fitAnaFun);
-% ---- 采纳拟合 RCS(2026-11-04 16 相位仲裁胜出: std 0.52 对 0.63; 均值 +0.11 如实保留) ----
-% 生产口径: 拟合只用【本点自身】RD/积累数据 + 暗箱角反标定量(K0/噪底/滤形) + 芯片已知
-% 配置(HPF 档位/窗类型); 无真值、无其它目标数据。峰点写回, 延伸点/回落点保持原值;
-% fig35(RCS 图)画于写回前(原始口径证据图), 点云 rcsDb 为拟合后值。
-adoptRcsFit = true;                                    % [旋钮] true=峰点 RCS 用拟合值写回
+% ---- 采纳拟合 RCS(已停用 2026-11-04) ----
+% 旧链: 峰点写回 peakFit 的非相参拟合增量(rcsDb + ncSnrFit−nonCohSNR) —— 弱目标在非相参
+% 图上无积累增益, 读数噪声主导、RCS 起伏大(用户指出的核心问题)。新链: rcsCompute 内
+% 独立点直接用 TXRX 相参累积图读数(K0Coh 角反锚定), 生产值即拟合值 —— 再叠非相参增量
+% 会跨域混叠, 故采纳块关闭。peakFit 保持解耦对比(ncSNR/cohSNR 行仍有意义)。
+adoptRcsFit = false;                                   % [旋钮] 旧非相参采纳(勿开, 见上)
 if adoptRcsFit
     nAdopt = 0;
     for t = 1:numel(tgtOut)

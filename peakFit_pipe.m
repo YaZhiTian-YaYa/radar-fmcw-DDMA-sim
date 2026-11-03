@@ -31,7 +31,7 @@ for t = 1:nT
     %    (峰-插值两步: 谱线真峰常不在检测 bin, 直接以检测 bin 为中心的抛物线会遇单调段失效)
     p5 = double(accumCfg.nonCohMap([k-2:k+2], sb));
     [~, pj] = max(p5(2:4));  pj = pj + 1;                   % 内三点(2..4)最强位置
-    [dpk, Ppk, okR] = para3p(p5(pj-1:pj+1));
+    [dpk, Ppk, okR] = hannPk3(p5(pj-1:pj+1), dims.rngPts);
     dpk = dpk + (pj - 3);                                   % 相对检测 bin 总偏移(可超 ±0.5)
     fitRep.rngFit(t) = (k - 1 + dpk) * dims.DeltaR;         % 仅显示用粗转换
     % ② 多普勒 bin: fftCfg 全分辨率 5 点, 同款峰-插值两步(RX 功率和; 循环回绕)。
@@ -40,7 +40,7 @@ for t = 1:nT
     dJ = mod((db-3):(db+1), dims.dopBinNum) + 1;            % 5 点全 bin(1 起)
     q5 = squeeze(sum(abs(fftCfg.data_sva(k, :, dJ)).^2, 2)); % [5×1] 功率
     [~, qj] = max(q5(2:4));  qj = qj + 1;
-    [ddk, Qpk, okD] = para3p(q5(qj-1:qj+1));
+    [ddk, Qpk, okD] = hannPk3(q5(qj-1:qj+1), dims.dopBinNum);
     ddk   = ddk + (qj - 3);
     dopRec = Qpk / q5(3);                                   % 多普勒维恢复比(两域同窗, 比值域无关)
     fitRep.spdFit(t) = (db - 1 + ddk) * dims.Vres;          % 谱线速度粗显示; bin→速度精确解耦后做
@@ -52,7 +52,7 @@ for t = 1:nT
     % ③ cohSNR 距离维: cohPeakPow 5 点, 同款峰-插值两步
     c5 = double(accumCfg.cohPeakPow([k-2:k+2], sb));
     [~, cj] = max(c5(2:4));  cj = cj + 1;
-    [~, Cpk, okC] = para3p(c5(cj-1:cj+1));
+    [~, Cpk, okC] = hannPk3(c5(cj-1:cj+1), dims.rngPts);
     if ~okR || ~okD || ~okC
         % 肩点(抛物线前提不成立): 全部回落原始读数, 不拟合
         fitRep.rngFit(t) = tgtOut(t).range;   fitRep.spdFit(t) = tgtOut(t).speed;
@@ -63,9 +63,10 @@ for t = 1:nT
     % ④ ncSNR/cohSNR: 距离维拟合峰功率 × 多普勒维恢复比(两频率维都拟)
     fitRep.ncSnrFit(t)  = 10*log10(Ppk * dopRec / noiseCfg.floorPow(k));
     fitRep.cohSnrFit(t) = 10*log10(Cpk * dopRec / accumCfg.cohFloorPow);
-    % ⑤ RCS: 复用 ncSNR 拟合增量(与 SNR 同方法同源, 不会出现 SNR↑而 RCS↓ 的自相矛盾)。
-    %    增量只含两频率维窗损恢复, rcsCompute 的 winScal/多普勒标定保持原样
-    fitRep.rcsFit(t) = tgtOut(t).rcsDb + (fitRep.ncSnrFit(t) - tgtOut(t).nonCohSNR);
+    % ⑤ RCS: 生产口径已在 rcsCompute 双域化(2026-11-04: 独立点=TXRX 相参图读数+K0Coh,
+    %    配对点=α域联合权重) —— 本模块为解耦对比, RCS 行直接引用生产值(旧 ncSNR 拟合
+    %    增量与非相参域绑死, 对相参域生产值会跨域混叠, 已弃)
+    fitRep.rcsFit(t) = tgtOut(t).rcsDb;
 end
 
 % ---- 逐真值目标三方对比打印(代表点=簇内窄方位门最强, 与 rcsCompute 同口径) ----
@@ -109,8 +110,9 @@ for g = 1:numel(targets)
     rTmp = fitRep.rcsFit(idx);  rTmp(~okR) = -inf;      % 窗内未认领者取最强(纯最近角会选中贴角弱肩点)
     [~, iR] = max(rTmp);
     tR = idx(iR);  claimedR(tR) = true;
-    fprintf(['    RCS (dBsm) : 真值 %8.2f | 原始 %8.2f | 拟合 %8.2f   (代表点=簇内最强峰[%s], 非审计匹配点; 无独立解析参考——雷达方程往返=输入回显)' newline], ...
-        targets(g).rcsDb, tgtOut(tR).rcsDb, fitRep.rcsFit(tR), splitTagStr(tgtOut(tR)));
+    if tgtOut(tR).rcsDom == 1, domR = '相参图'; else, domR = 'α域'; end
+    fprintf(['    RCS (dBsm) : 真值 %8.2f | 生产 %8.2f (%s, 代表点=簇内最强峰[%s], 非审计匹配点; 无独立解析参考——雷达方程往返=输入回显)' newline], ...
+        targets(g).rcsDb, tgtOut(tR).rcsDb, domR, splitTagStr(tgtOut(tR)));
     fprintf(['    ncSNR (dB) : 原始 %6.2f | 拟合 %6.2f | 解析 %6.2f' newline], ...
         tgtOut(t).nonCohSNR, fitRep.ncSnrFit(t), an.SNR_dB);
     fprintf(['    cohSNR (dB): 原始 %6.2f | 拟合 %6.2f | 解析 %6.2f' newline], ...
@@ -118,16 +120,22 @@ for g = 1:numel(targets)
 end
 end
 
-function [d, pk, ok] = para3p(p)
-%PARA3P 3 点功率抛物线: p=[p(-1) p0 p(+1)], 返回峰偏移 d(±0.5 内)与峰功率 pk。
-%   ok=false = 非凹(单调段)或顶点越出 ±0.5(肩点特征): 不满足峰拟合前提, 调用方回落原始值
+function [d, pk, ok] = hannPk3(p, N)
+%HANNPK3 3 点功率峰的汉宁精确恢复(2026-11-04 替代纯抛物线, 同 rcsCompute_pipe):
+%   位置 = 幅度域 Grandke 插值 δ=2(a₃−a₁)/(a₁+2a₂+a₃)(抛物线位置在 δ→0.5 偏短
+%   ~0.25 bin); 峰功 = p0×10^(winScalDb(δ,N)/10)(抛物线峰功在 δ=0.5 低估 1.18dB
+%   —— 分数 bin 目标系统性偏低, 默认场景 285.5 bin 即中招)。肩点判据同旧 para3p
+a   = sqrt(max(p, 0));
 den = p(1) - 2*p(2) + p(3);
-d = 0.5*(p(1) - p(3)) / den;
-if den >= 0 || abs(d) > 0.5
-    ok = false;  d = 0;  pk = p(2);  return
+ok  = den < 0;                                % 非凹 = 肩点, 回退原格
+d   = 2*(a(3) - a(1)) / (a(1) + 2*a(2) + a(3) + eps);
+if ~ok
+    d = 0;  pk = p(2);  return
 end
-ok = true;
-pk = p(2) - 0.25*(p(1) - p(3))*d;
+d = max(min(d, 0.5), -0.5);                   % 半bin目标 d≈0.5 恰在边界: 截断而非拒绝
+                                              %   (噪声越过 0.5 就回退会吃下整 1.4dB 叶损)
+w  = hanning(N);  nn = (0:N-1).';
+pk = p(2) * 10^(-20*log10(abs(w.'*exp(-1i*2*pi*d*nn/N)) / sum(w)) / 10);
 end
 
 function s = splitTagStr(p)

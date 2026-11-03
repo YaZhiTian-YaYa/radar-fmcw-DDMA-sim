@@ -28,6 +28,7 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, d_azi,
     chanCalib = cCal(:);                                     % 0°校准表(64×1, 顺序与快照一致)
     aziFftIn = zeros(dims.aziFftLen, dims.rngUse, dims.subBins);      % 方位FFT输入 [方位×距离×子带](第二维是距离!)
     accumCfg.chanSnapshot = zeros(dims.chanTotal, dims.rngUse, dims.subBins);   % 64通道快照(供测角, 第二维是距离)
+    chirpPosMap = zeros(dims.rngUse, dims.subBins, numel(ddmShift));  % 各单元 8 根码线的被抓 bin(RCS 相参读数的逐线叶损恢复用)
     %% 通道重排与方位FFT: 逐(距离, 多普勒子带)单元取回通道数据并做方位FFT
     for rngIdx = 1 : dims.rngUse               % 距离维遍历(nV-1 个有效 bin; 勿写 dopBinNum —— 原 512==512 巧合)
         for dopIdx = 1 : dims.subBins
@@ -37,6 +38,7 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, d_azi,
             % bin序号 = 子带序号 + (阶数+TX频移)×子带bin数(每组dims.subBins个bin), 回绕到速度全带
             chirpPos = mod(dopIdx + (txOrd + ddmShift - 1) * dims.subBins - 1, ...
                              dims.dopBinNum) + 1;
+            chirpPosMap(rngIdx, dopIdx, :) = chirpPos.';
             % 取8TX×8RX=64通道快照, 排成 TX内循环/RX外循环(与 chanCalib/A_manifold 一致)
             blk = squeeze(fftCfg.data_sva(rngIdx, :, chirpPos));   % [nRX × nTX]
             accumCfg.chanSnapshot(:, rngIdx, dopIdx) = reshape(blk.', [], 1);
@@ -50,6 +52,7 @@ function [accumCfg] = jointAccum_pipe(fftCfg, ddmShift, cCal, A_manifold, d_azi,
         end
     end
     accumCfg.aziFftBuf = aziFftIn;                            % 方位FFT输入(调试用)
+    accumCfg.chirpPosMap = chirpPosMap;                        % 各单元 8 根码线被抓 bin [rng×sb×nTX]
     accumCfg.aziFftSpec = single(fft(aziFftIn, [], 1));        % 沿方位维128点FFT(即DBF)
     % 各单元取方位谱峰值功率与对应方位bin位置
     [accumCfg.cohPeakPow, accumCfg.cohPeakPos] = max(abs(accumCfg.aziFftSpec) .^ 2, [], 1);

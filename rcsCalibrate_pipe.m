@@ -128,11 +128,11 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
         kc = tgtOut(kBest).rangIdx;  dbc = tgtOut(kBest).dopplerIdx;
         p5 = double(accumCfg.nonCohMap([kc-2:kc+2], kBestSb));
         [~, pj] = max(p5(2:4));  pj = pj + 1;
-        [dpkC, PpkC, okR] = para3p(p5(pj-1:pj+1));  dpkC = dpkC + (pj - 3);  %#ok<NASGU>
+        [dpkC, PpkC, okR] = hannPk3(p5(pj-1:pj+1), dims.rngPts);  dpkC = dpkC + (pj - 3);  %#ok<NASGU>
         dJ = mod((dbc-3):(dbc+1), dims.dopBinNum) + 1;
         q5 = squeeze(sum(abs(fftCfg.data_sva(kc, :, dJ)).^2, 2));
         [~, qj] = max(q5(2:4));  qj = qj + 1;
-        [~, QpkC, okD] = para3p(q5(qj-1:qj+1));
+        [~, QpkC, okD] = hannPk3(q5(qj-1:qj+1), dims.dopBinNum);
         if okR && okD
             dopRecC = QpkC / q5(3);
             incC = 10*log10(PpkC * dopRecC / double(accumCfg.nonCohMap(kc, kBestSb)));
@@ -157,20 +157,59 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
     sigCalDb = corner.rcsDb;                               % 角反真值 RCS (dBsm)
     K0 = sigCalDb - snrCalDb - 40*log10(Rcal);             % 链路常数 (dB)
 
+    % ---------- 相参域角反锚定(2026-11-04): TXRX 相参累积图口径, 独立点 RCS 用 ----------
+    % 动因: 非相参图无积累增益(8TX 对齐+8RX 功率平均均不改均值 SNR), 弱目标峰单元读数
+    % 噪声主导、RCS 起伏大; 相参图(64 元方位 FFT)+~18dB, 弱目标可读。角反 ele=0 无
+    % z 行失配损失, 读数与目标侧(rcsCompute 独立点)同法: 方位峰 bin±1 × 距离 5 点
+    % 峰-插值 × 多普勒恢复比 → FFT 归一化/角度维取峰统计抬底/噪底口径全部进 K0Coh 相消
+    K0Coh = NaN;  snrCohCal = NaN;  cohFloorDb = NaN;
+    if nargin >= 11 && ~isempty(fftCfg) && rGate >= 3 && rGate <= dims.rngUse - 2
+        % 多普勒恢复比: 相参快照 = 每 TX 从自己的 chirpPos bin 抓 1 个整数 bin, 8 根码线
+        % 各有叶损 —— 逐线 5 点峰-插值求恢复比等权平均(单线拟合只代表一根线: 角反/目标
+        % δ 图样不同 → 残差进 K0Coh, 实测 −1.9 dB, 2026-11-04 修)
+        if isfield(accumCfg, 'chirpPosMap')
+            binsC = double(accumCfg.chirpPosMap(rGate, kBestSb, :));
+        else
+            binsC = double(tgtOut(kBest).dopplerIdx);        % 兜底: 单 bin(旧口径)
+        end
+        dopRecC = dopRecMulti(fftCfg, binsC(:), rGate, dims.dopBinNum);
+        if isfield(tgtOut, 'cohPeakIdx') && ~isempty(tgtOut(kBest).cohPeakIdx)
+            b0c = double(tgtOut(kBest).cohPeakIdx);           % 检测链已存的本点方位峰 bin
+        else
+            b0c = double(accumCfg.cohPeakPos(rGate, kBestSb));% 兜底: 该单元谱峰位置
+        end
+        CpkC = 0;
+        for bb = mod((b0c-2):(b0c), dims.aziFftLen) + 1       % 峰 bin ±1 邻域(回绕)
+            c5 = double(abs(squeeze(accumCfg.aziFftSpec(bb, rGate-2:rGate+2, kBestSb))).^2);
+            [~, pjc] = max(c5(2:4));  pjc = pjc + 1;
+            [~, pTk, okP] = hannPk3(c5(pjc-1:pjc+1), dims.rngPts);
+            if okP, CpkC = max(CpkC, pTk); else, CpkC = max(CpkC, c5(3)); end
+        end
+        cohFloorDb = 10*log10(double(accumCfg.cohFloorPow));  % 相参域噪底(标定遍, 含取峰统计)
+        snrCohCal  = 10*log10(CpkC * dopRecC + eps) - (cohFloorDb + shapeAt(rGate));
+        K0Coh = sigCalDb - snrCohCal - 40*log10(Rcal);
+        fprintf('RCS 相参锚定   : 角反相参读数 SNR %.1f dB(方位峰bin±1×距离峰插值×多普勒恢复 %.2f) | K0Coh = %.1f dB(独立点相参图口径)\n', ...
+            snrCohCal, dopRecC, K0Coh);
+    else
+        warning('RCS 相参锚定: 角反门数据不足, K0Coh 缺失 —— 独立点 RCS 回退 α 域');
+    end
+
     % ---------- 分段结构(近场/远场; 当前共用角反 K0, 结构已留好) ----------
     segR   = [0, calibInfo.RfarField, Inf];
     K0Seg  = [K0; K0];                                     % 段1(近场)=段2(远场)
+    K0CohSeg = [K0Coh; K0Coh];                             % 相参域同分段结构
 
     % ---------- 天线增益VS角度(暂无数据, 预留接口) ----------
     angGainDb = @(az, el) zeros(size(az));   % [暂缺] 有增益方向图数据后替换此句柄
 
     rcsCfg = struct('K0Seg', K0Seg, 'segR', segR, 'angGainDb', angGainDb, ...
-        'flatDb', flatDb, 'shapeAt', shapeAt, ...
+        'flatDb', flatDb, 'shapeAt', shapeAt, 'K0CohSeg', K0CohSeg, 'cohFloorDb', cohFloorDb, ...
         'corner', struct('idx', kBest, 'RD', [tgtOut(kBest).rangIdx, tgtOut(kBest).dopplerIdx], ...
-                         'R', Rcal, 'ampDb', aBest, 'snrDb', snrCalDb, ...
+                         'R', Rcal, 'ampDb', aBest, 'snrDb', snrCalDb, 'snrCohDb', snrCohCal, ...
+                         'K0Coh', K0Coh, ...
                          'floorDb', floorCalDb, 'floorRawDb', floorDb(rGate), 'compWinDb', compWinDb, 'sigDb', sigCalDb));
 
-    fprintf('RCS 角反标定   : 角反 RD(%d,%d) 布设 R=%.2f m | SNR %.1f dB (幅度 %.1f − 窗损补 %+.1f/%+.1f dB 噪底参考 %.1f) | 真值 %.0f dBsm | K0 = %.1f dB\n', ...
+    fprintf('RCS 角反标定   : 角反 RD(%d,%d) 布设 R=%.2f m | SNR %.1f dB (幅度 %.1f − 窗损补 %+.1f/%+.1f dB 噪底参考 %.1f) | 真值 %.0f dBsm | K0 = %.1f dB | %s\n', ...
         rcsCfg.corner.RD(1), rcsCfg.corner.RD(2), Rcal, snrCalDb, aBest, rcsCfg.corner.compWinDb, floorCalDb, sigCalDb, K0, fitSrcStr);
     if fitOk
         if hasDesign, fcSrc = sprintf('设计档位 %.0f/%.0f kHz', fitFcKHz);
@@ -235,13 +274,39 @@ for k = 1:numel(delta)
 end
 end
 
-function [d, pk, ok] = para3p(p)
-%PARA3P 3 点功率抛物线(同 peakFit_pipe): ok=false=非凹/顶点越界(肩点), 调用方回退
+function dR = dopRecMulti(fftCfg, binsGrab, k, dopBinNum)
+%DOPRECMULTI 8 根 DDMA 码线各自被抓 bin 的多普勒叶损恢复比(等权平均):
+%   相参快照 = 每 TX 从自己的 chirpPos bin 抓 1 个整数 bin, 8 根线各有叶损;
+%   单线拟合只代表一根线, 角反/目标 δ 图样不同 → 残差进 K0Coh。
+%   逐线 5 点峰-插值 → rec_t = 峰功率/被抓bin功率, 肩点该线回退 1
+dR = 1;
+if isempty(binsGrab), return; end
+recs = ones(numel(binsGrab), 1);  okAny = false;
+for tt = 1:numel(binsGrab)
+    db = double(binsGrab(tt));
+    dJ = mod((db-3):(db+1), dopBinNum) + 1;            % 5 点全 bin(1 起, 循环回绕)
+    q5 = squeeze(sum(abs(fftCfg.data_sva(k, :, dJ)).^2, 2));
+    [~, qj] = max(q5(2:4));  qj = qj + 1;
+    [~, Qpk, okD] = hannPk3(q5(qj-1:qj+1), dopBinNum);
+    if okD, recs(tt) = Qpk / q5(3);  okAny = true; end
+end
+if okAny, dR = mean(recs); end
+end
+
+function [d, pk, ok] = hannPk3(p, N)
+%HANNPK3 3 点功率峰的汉宁精确恢复(同 rcsCompute_pipe, 2026-11-04 替代纯抛物线):
+%   位置 = 幅度域 Grandke 插值(抛物线位置在 δ→0.5 偏短 ~0.25 bin);
+%   峰功 = p0×10^(winScalDb(δ,N)/10)(抛物线峰功在 δ=0.5 低估 1.18dB)
+a   = sqrt(max(p, 0));
 den = p(1) - 2*p(2) + p(3);
-d = 0.5*(p(1) - p(3)) / den;
-if den >= 0 || abs(d) > 0.5
-    ok = false;  d = 0;  pk = p(2);  return
+ok  = den < 0;                                % 非凹 = 肩点, 回退原格
+d   = 2*(a(3) - a(1)) / (a(1) + 2*a(2) + a(3) + eps);
+if ~ok
+    d = 0;  pk = p(2);  return
 end
-ok = true;
-pk = p(2) - 0.25*(p(1) - p(3))*d;
+d = max(min(d, 0.5), -0.5);                   % 半bin目标 d≈0.5 恰在边界: 截断而非拒绝
+                                              %   (噪声越过 0.5 就回退会吃下整 1.4dB 叶损)
+w  = hanning(N);  nn = (0:N-1).';
+pk = p(2) * 10^(-20*log10(abs(w.'*exp(-1i*2*pi*d*nn/N)) / sum(w)) / 10);
 end
+
