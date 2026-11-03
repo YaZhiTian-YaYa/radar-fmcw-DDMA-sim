@@ -293,11 +293,14 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     figCloud = figure('Position', figPos, 'Name', 'fig32_DBF_OMP_DML');
     tiledlayout(2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
     nexttile;
-    scatter(xPos, yPos, 24, zEst, 'filled'); hold on;
-    scatter(xPos(isD1), yPos(isD1), 40, 'ro', 'LineWidth', 1.5); hold on;
-    scatter(xPos(isD2), yPos(isD2), 40, 'co', 'LineWidth', 1.5); hold on;
-    scatter(xPos(isOMP2), yPos(isOMP2), 40, 'ko', 'LineWidth', 1.5); grid on; colorbar;
-    legend({'OMP第二目标(黑圈)','DML第一目标(红圈)','DML第二目标(青圈)'}, 'Location', 'best');
+    hP = scatter(xPos, yPos, 24, zEst, 'filled'); hold on;
+    hR = scatter(xPos(isD1), yPos(isD1), 40, 'ro', 'LineWidth', 1.5);
+    hC = scatter(xPos(isD2), yPos(isD2), 40, 'co', 'LineWidth', 1.5);
+    hK = scatter(xPos(isOMP2), yPos(isOMP2), 40, 'ko', 'LineWidth', 1.5); grid on; colorbar;
+    % 句柄显式传入: 无句柄时 legend 按对象创建顺序贴标签, 底图彩点(第一个对象)会被
+    % 误标为"OMP第二目标(黑圈)", 黑圈(最后一个对象)反无标签 —— 整体错一位
+    legend([hP hK hR hC], {'检测点(颜色=z)', 'OMP第二目标(黑圈)', ...
+        'DML第一目标(红圈)', 'DML第二目标(青圈)'}, 'Location', 'best');
     xlim([-sym10(xPos), sym10(xPos)]); ylim([0, rMax10]);
     xlabel('x (m)'); ylabel('y (m)'); title('x-y 位置');
     nexttile;

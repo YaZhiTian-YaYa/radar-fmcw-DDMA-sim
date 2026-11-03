@@ -37,8 +37,8 @@ function [figPhys, figVirt] = plotArrayGeom(antenna_t, antenna_r, A_manifold, d_
         rectangle('Position', [rInt(1,i)-antSizeX/2, rInt(2,i)-antSizeZ/2, ...
                                antSizeX, antSizeZ], 'EdgeColor', 'b', 'LineWidth', 1);
     end
-    scatter(tInt(1, :), tInt(2, :), 120, 'r^', 'filled');
-    scatter(rInt(1, :), rInt(2, :), 120, 'bs', 'filled');
+    hTx = scatter(tInt(1, :), tInt(2, :), 120, 'r^', 'filled');
+    hRx = scatter(rInt(1, :), rInt(2, :), 120, 'bs', 'filled');
     text(tInt(1, :), tInt(2, :) + 1.5, compose('TX%d', 1:nTX), ...
          'Color', 'r', 'FontWeight', 'bold', 'HorizontalAlignment', 'center');
     text(rInt(1, :), rInt(2, :) + 1.5, compose('RX%d', 1:nRX), ...
@@ -48,7 +48,9 @@ function [figPhys, figVirt] = plotArrayGeom(antenna_t, antenna_r, A_manifold, d_
     xlabel('y (×d_azi)');
     ylabel('z (×d_ele)');
     title('物理阵列（设计原始整数栅格, 单位 1 网格, 矩形=天线封装(观察干涉)）');
-    legend({'TX', 'RX'}, 'Location', 'best');
+    % 句柄显式传入: 无句柄时 legend 按对象创建顺序贴标签, 16 个封装 rectangle(先于
+    % scatter 创建)会抢占前两条标签, 蓝色 RX 方块拿不到自己的条目
+    legend([hTx, hRx], {'TX', 'RX'}, 'Location', 'best');
 
     % ==================== 图8: 虚拟阵列 ====================
     % 64 个虚拟阵元(TX+RX 相位中心矢量和), 每元标注 TX几RX几;
