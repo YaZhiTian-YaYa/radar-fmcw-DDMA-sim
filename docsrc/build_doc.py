@@ -1,0 +1,282 @@
+# -*- coding: utf-8 -*-
+# 《RCS标定与估计方案说明.docx》重写生成器
+# 输入: docfigs\results.csv (finalBatch 产物) + docfigs\*.png (genCharts/genSchematics 产物)
+import csv, os
+import numpy as np
+from docx import Document
+from docx.shared import Pt, Cm, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+
+FIG = r'C:\Users\NJ\AppData\Local\Temp\probe95\docfigs'
+OUT = r'F:\Work3\CH_NEW_95_射频_DDMA\RCS标定与估计方案说明.docx'
+
+doc = Document()
+# 全局中文字体
+st = doc.styles['Normal']
+st.font.name = 'Times New Roman'
+st.font.size = Pt(10.5)
+st.element.rPr.rFonts.set(qn('w:eastAsia'), '宋体')
+for h, sz in [('Heading 1', 16), ('Heading 2', 14), ('Heading 3', 12)]:
+    s = doc.styles[h]
+    s.font.name = 'Times New Roman'
+    s.font.size = Pt(sz)
+    s.font.color.rgb = RGBColor(0, 0, 0)
+    s.element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
+
+def p(text, bold=False, italic=False):
+    par = doc.add_paragraph()
+    r = par.add_run(text)
+    r.bold = bold
+    r.italic = italic
+    return par
+
+def img(fname, w=15.5, cap=None):
+    fp = os.path.join(FIG, fname)
+    if os.path.exists(fp):
+        par = doc.add_paragraph()
+        par.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        par.add_run().add_picture(fp, width=Cm(w))
+        if cap:
+            c = doc.add_paragraph(cap)
+            c.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for r in c.runs:
+                r.font.size = Pt(9)
+    else:
+        p('【图缺失: %s】' % fname)
+
+def table(rows, header=True, widths=None):
+    t = doc.add_table(rows=len(rows), cols=len(rows[0]))
+    t.style = 'Table Grid'
+    for i, row in enumerate(rows):
+        for j, cell in enumerate(row):
+            tc = t.cell(i, j)
+            tc.text = str(cell)
+            for par in tc.paragraphs:
+                for r in par.runs:
+                    r.font.size = Pt(9)
+                    if i == 0 and header:
+                        r.bold = True
+    return t
+
+# ================= 标题页 =================
+h = doc.add_heading('RCS 标定与估计方案说明', level=0)
+p('—— 用一个角反称出整条链路, 相参图读出弱目标, 联合权重分开双目标 ——', italic=True)
+p('版本: 2026-11-04(重写版, 对应当前代码库; 旧版基于早期链路, 数字与结构均已过时)')
+
+# ================= 导读 =================
+doc.add_heading('导读', level=1)
+p('雷达直接测得的是"回波比噪底强多少"(SNR), 工程上要的是"目标反射面积有多大"(RCS, 单位 dBsm)。'
+  '两者之间只差一个链路常数, 整个方案围绕一个公式展开:')
+p('σ(dBsm) = SNR(dB) + 40·lg R(m) + K(dB)', bold=True)
+p('方案做两件事: 第一章, 在暗箱里放一个 RCS 已知的角反射器, 一次性标定出常数(两把尺: K0 与 K0Coh); '
+  '第二~四章, 对点云中每一个点估计 RCS, 并用三批仿真场景做统计验证(独立目标 / OMP 双目标 / DML 双目标)。')
+p('三条设计原则贯穿全文:')
+p('(1) 无先知: 标定与估计只允许使用三类输入——角反的已知参数与其自身测量数据、芯片手册与芯片配置(HPF 档位、'
+  'PLL 系数、跳频误差、窗类型、阵列几何)、以及被测目标自己的数据。真值只出现在验证环节的评分里, 不进任何估计路径。')
+p('(2) 同尺约减: SNR 是比值, 信号与噪底同 bin 同滤形, 滤波器形状在分子分母中约掉——全程不需要知道滤波器设计。')
+p('(3) 各走各的尺: 独立点用相参图读数、配对点用通道域联合权重, 两种口径各配各的常数(K0Coh / K0), '
+  '口径差异全部被常数吸收——前提是标定与估计严格同口径, 这是精度的根基, 也是历史上一次 +5 dB 级偏差的教训来源。')
+p('符号: σ=RCS(dBsm); R=距离; K=链路常数; α=通道域复幅度; "相参图"=TXRX 相参积累(64 元方位 FFT)功率谱; '
+  '"α 域"=64 通道复数快照域; K0/K0Coh 分别是两域的标定常数。')
+
+# ================= 第一章 =================
+doc.add_heading('第一章  方案: 一个角反称链路, 两条支路读目标', level=1)
+
+doc.add_heading('1.1  两遍测量与全流程', level=2)
+p('系统跑两遍(图 1-1)。第一遍"校准遍": 场景里只放角反(3.5 m, −5 dBsm), 走完整测量链路, '
+  '产出四样东西并冻结——通道校准表 cCal、噪底平坦电平 flat、滤形曲线 shape(·)、两个链路常数 K0 与 K0Coh。'
+  '第二遍"目标遍": 换成真实目标场景, 用冻结的标定量对每个点云点估计 RCS。')
+p('为什么分两遍: 现实中校准在暗箱/暗室做一次, 量产量产线上复用; 仿真按同样时序组织, 保证验证的就是可上线的口径。')
+img('fig_s1_flow.png', cap='图 1-1  RCS 标定与估计全流程(校准遍冻结 4 量, 目标遍五分类路由)')
+
+doc.add_heading('1.2  校准遍: 四步称出链路', level=2)
+p('步骤① 0°校准表 cCal(通道失配校正)。', bold=True)
+p('做什么: 角反在正前方(方位 0°), 逐通道提取其回波相位, 扣除已知的近场球面波相位(3.5 m 不满足远场条件), '
+  '剩下的就是各通道的固 有相位失配, 取共轭做成校准表, 供相参合成时把 64 个通道"掰齐"。')
+p('为什么: 阵列通道幅相不一致时, 64 元相参合成会失焦——增益掉、旁瓣升; 角反是场上唯一方向已知的源, '
+  '拿它当"相位基准"是唯一不引入额外设备的办法。')
+p('失效条件: 角反自身 SNR 不足时表被噪声污染; 表内含多普勒窗的奇偶 180° 项, 校准其它多普勒 bin 时需按奇偶补 180°。')
+p('步骤② 噪底滤形重建(角反门噪底参考)。', bold=True)
+p('做什么: 用校准遍 RD 谱自带的逐距离门噪底曲线——平坦段(30%~80% 距离)取中位定电平; '
+  '过渡带(噪底低于平坦段 0.5~35 dB 的干净段)用两级高通模型拟合滤形, 拟合结果用芯片配置的 HPF 档位锚定; '
+  '外推到角反所在近距门, 得到角反的噪底参考 = flat + shape(角反门)。')
+p('为什么: 角反布在近距, 差拍频率落进高通阻带, 信号本身被压低; 更麻烦的是它那个门的实测噪底混入了'
+  '近距泄漏的贡献, 不再是"纯热噪×滤形"——直接引用会把泄漏当成滤形。这正是旧版方案全体偏高 +5.3 dB 的根源: '
+  '泄漏把过渡段整体抬高约 6 dB, 拟合误判, K0 被同向带偏。改成"曲线拟合法 + 档位锚定"后, 该偏差消除。')
+p('失效条件: 干净过渡段不足 8 个 bin(告警并降级); 芯片 HPF 档位配置与实际链路不符(拟合 fc 与档位差 >100 kHz 时告警)。')
+p('步骤③ K0(α 域常数)。', bold=True)
+p('角反幅度取 36 元方位行的最小二乘投影 α = aᴴx/(aᴴa)(即"在角反方向上做匹配滤波"), '
+  'SNR_cal = α − 噪底参考, K0 = σ_cal − SNR_cal − 40·lg R_cal。')
+p('步骤④ K0Coh(相参域常数)。', bold=True)
+p('角反在 TXRX 相参图上再做一次读数(读法与目标遍的独立点完全同款, 见 1.3), 得到相参域的 SNR 与常数 K0Coh。')
+p('为什么两把尺: 目标遍里两类点走两条支路(相参图 / α 域), 两种读数的量纲、噪底口径、统计偏移都不同, '
+  '一把尺盖不住两支路; 各配各的常数后, 尺子的绝对刻度差异被常数吸收, 只要求"标定与估计同支路同口径"。')
+
+doc.add_heading('1.3  目标遍: 五分类路由与两条支路', level=2)
+p('每个点云点先由超分辨模块打上角色标记(独立点 / OMP 第一目标 / OMP 第二目标 / DML 第一目标 / DML 第二目标), '
+  'RCS 估计按角色路由(图 1-2): 独立点走相参图支路, 四类配对成员走 α 域联合权重支路。')
+img('fig_s2_route.png', cap='图 1-2  逐点估计的五分类路由与两条支路')
+p('超分辨本身按角间隔分工(图 1-3): 间隔大(约 ≥2°)时 OMP 生效——第一原子扣除后残差仍强, 匹配峰过 12 dB 门限;'
+  '间隔小(约 0.6°~1.2°)时第一原子把两个目标的能量一起吸收, 残差塌掉, OMP 检不出, 轮到 DML——双原子连续角'
+  '联合拟合, 残差改善超 3 dB 即判出。注意 DML 的触发窗是二维的: 分离度×弱成员绝对电平——'
+  '弱成员太弱(其残余能量 <3 dB)或间隔太紧(第一原子把它也吸掉)都不触发, 系统回退输出融合单点;'
+  '再小(约 <0.5°)联合拟合也分不开, 谁都检不出。')
+img('fig_s3_sep.png', cap='图 1-3  同距同速双目标的角度分离度路由: OMP 区 / DML 区 / 不可分区')
+
+doc.add_heading('1.3.1  支路 A: 独立点 = 相参图读数(弱目标的关键)', level=3)
+p('为什么独立点改用相参图: 非相参积累(8TX 对齐 + 8RX 功率平均)不提升均值 SNR——弱目标在非相参图上'
+  'ncSNR≈1 dB 时读数全是噪声起伏(单实现 ±2~3 dB); 相参图(64 元方位 FFT)有 +18 dB 积累, 同一目标读得动。'
+  '代价是读数要自己管好四件事, 每件都有"为什么"与失效条件:')
+p('a) 方位读数: 峰 bin±1 邻域 + 角维三点幅度抛物线。', bold=True)
+p('为什么: 方位 FFT 栅格 1.4°/bin, 目标落在 bin 之间时单 bin 读数有 ±0.7 dB 纹波; 邻域取最大吸收栅格量化, '
+  '三点抛物线顶点把纹波再压一档。失效: 波束肩点(三点非凹)回落原格读数, 不强行插值。')
+p('b) 距离/多普勒: 汉宁精确峰插值(hannPk3)。', bold=True)
+p('为什么: 谱线几乎从不落在整数 bin 正中, 常规 3 点抛物线在半 bin 偏移处系统性低估峰功率 1.18 dB'
+  '(实测案例: 默认场景目标恰在 285.5 bin, 抛物线读数 −1.58 dB, 换汉宁核插值后 −0.6 dB)。'
+  'hannPk3 用幅度域插值定位置、汉宁核精确算峰功, 半 bin 处误差 <0.02 dB。失效: 非凹肩点回退原格。')
+p('c) 俯仰损失补偿 cohGainDbf(θ̂)。', bold=True)
+p('为什么: 相参图是一维方位 FFT, 不含俯仰导向——目标俯仰 ≠0 时各行(z)相位对不齐, 64 元合成自动掉增益。'
+  '按阵列几何可算出该损失并补回。护栏有二: θ̂ 取同簇中位数(单点俯仰估计有 ±5° 级野值, 实测一个 '
+  'azi15°/4 dBsm 点 θ̂ 偏 +5°, 单点补偿多加了 +3.5 dB), 再夹到产品口径 ±15°。'
+  '失效: DOA 方位-俯仰二维耦合造成的系统性 θ̂ 偏差(当前遗留专项), 簇中位防不了系统性偏差。')
+p('d) PLL 线损补偿 4.343σφ²。', bold=True)
+p('为什么: 逐 chirp 的 PLL 跟踪相位噪声按 e^{−σφ²} 把谱线功率劈走一部分, σφ ∝ 时延 ∝ 距离——'
+  '@200m 约 1.1 dB, @300m 约 2.8 dB。关键在于角反 τ 仅 23 ns, 几乎不受此项影响, 所以常数 K0Coh'
+  '原理上吸不掉它(常数锚定在 3.5 m, 损失却是距离的函数), 必须显式补。'
+  '输入全部合法: σ_δf 来自芯片 PLL 参数, τ̂=2R̂/c 用自估距离。失效: 芯片 PLL 参数与实装不符。')
+p('e) 前置: DDM 解模糊选阶。', bold=True)
+p('DDMA 把 8 个 TX 的回波按码位在多普勒维搬移, 检测前要"选阶"把 8 根码线对齐。曾有一个隐蔽失效: '
+  '谱线分数偏移跨过 16 bin 组边界时能量劈进相邻子带, 低 ncSNR(≈4 dB, 300 m 级)目标邻带泄漏反超真带, '
+  '选错阶后目标位置偏 141 bin——表现是"目标消失"。修复为选阶统计量取子带 ±1 三列最大, '
+  '300 m 目标回真位, 同族边缘目标检出率一并恢复。失效边界: ncSNR 更低时仍可能错阶(门限灵敏度专项)。')
+
+doc.add_heading('1.3.2  支路 B: 配对点 = α 域联合权重', level=3)
+p('为什么配对点不能用相参图: ±1° 级的双目标在 1.4°/bin 的方位谱里落在同一/相邻 bin, 两目标能量互相污染, '
+  '图读数分不开。α 域(64 通道快照)上做双原子联合最小二乘, 两个目标的幅度同时解出——这才是"分离后的 RCS"。'
+  '母点(第一目标)同样用联合权重(而非单原子投影), 与第二目标对称, 避免互泄漏。')
+p('叶损按逐点精确恢复(距离剖面 hannPk3 + 8 根码线多普勒均值)——早期用"检测插值距离 + 统计常数 −0.37 dB"'
+  '的旧口径, 插值距离散布 ±0.75 bin 会造成 ±2 dB 幻影补偿, 已弃用。')
+p('失效条件(物理极限): 两目标角距小时联合解的条件数 κ 升高(κ≈3.5@1°), 弱成员单实现散布 ±1.5 dB 级——'
+  '这是线性代数的极限, 不是实现 bug; 方案用置信标志(sep<3° 低置信)标注, 供下游加权使用。根治要多 cell 相参合成(专项)。')
+
+doc.add_heading('1.4  失效条件与边界汇总', level=2)
+table([
+    ['环节', '失效条件', '症状', '防线'],
+    ['通道校准', '角反 SNR 低/奇偶 bin 相位差', '相参合成失焦', '/'.join(['奇偶 180° 补', '强度自检'])],
+    ['滤形重建', '过渡段<8 bin; 档位配置错', 'K0 整体偏差(全体±)', '告警降级; 档位核对告警'],
+    ['DDM 选阶', 'ncSNR≈4dB 且谱线跨组界', '目标位置错 141bin', '子带±1 三列最大(已修); 门限专项'],
+    ['峰插值', '肩点(非凹)', '回落原格, 读数偏低≤1.4dB', 'hannPk3 判凹回退'],
+    ['俯仰补偿', 'θ̂ 野值/系统偏差', '±2~4dB 过/欠补', '簇中位+±15°夹紧; DOA 二维专项'],
+    ['PLL 补偿', '芯片参数失配', '远距系统性偏差', '参数来自芯片手册口径'],
+    ['DML 触发窗', '弱成员残余<3dB 或 间隔<~0.8°', '对融合成单点(读数≈相干和)', '按设计回退输出融合值; 门限专项'],
+    ['配对权重', '角距<1.5°(κ 大)', '弱成员±1~3.5dB 散布', 'rcsConf 置信标志; 多cell 专项'],
+    ['检测门限', 'ncSNR<门限(300m+ 弱目标)', '点不进点云(谈不上RCS)', 'thrSweep 重标定专项'],
+])
+
+# ================= 数据章节(读 CSV) =================
+rows = []
+with open(os.path.join(FIG, 'results.csv'), encoding='utf-8') as f:
+    for r in csv.DictReader(f):
+        rows.append(r)
+
+def camp_rows(prefix):
+    return [r for r in rows if r['case'].startswith(prefix)]
+
+def ispair(r):
+    return int(r.get('isPair', '0') or '0') == 1
+
+def samept(r):
+    return int(r.get('samePt', '0') or '0') == 1
+
+def hasfit(r):
+    try:
+        return float(r['fit']) == float(r['fit'])
+    except ValueError:
+        return False
+
+def stat_line(rs):
+    dev = np.array([float(r['dev']) for r in rs if hasfit(r)])
+    return 'n=%d, 偏差均值 %+.2f dB, std %.2f dB, 范围 [%+.2f, %+.2f]' % (
+        len(dev), dev.mean(), dev.std(), dev.min(), dev.max())
+
+def stat_table(prefix, title, pair_label=True):
+    doc.add_heading(title, level=2)
+    rs = camp_rows(prefix)
+    if not rs:
+        p('【本批无数据】')
+        return
+    fitted = [r for r in rs if hasfit(r)]
+    sep = [r for r in fitted if ispair(r) and r['splitTag'] in ('1', '2', '3', '4') and not samept(r)]
+    refs = [r for r in fitted if not ispair(r)]
+    unsep = [r for r in fitted if ispair(r) and r not in sep]
+    p('全批已检出 %d / %d: %s' % (len(fitted), len(rs), stat_line(fitted)))
+    tbl = [['类别', 'n', '均值(dB)', 'std(dB)', '范围(dB)']]
+    if refs:
+        dev = np.array([float(r['dev']) for r in refs])
+        nm = '参照独立目标(相参图支路)' if pair_label else '独立目标(相参图支路)'
+        tbl.append([nm, len(dev), '%+.2f' % dev.mean(), '%.2f' % dev.std(),
+                    '%+.2f ~ %+.2f' % (dev.min(), dev.max())])
+    tags = [('1', 'OMP第一目标(α域)'), ('2', 'OMP第二目标(α域)'),
+            ('3', 'DML第一目标(α域)'), ('4', 'DML第二目标(α域)')]
+    for tg, nm in tags:
+        sub = [r for r in sep if r['splitTag'] == tg]
+        if not sub:
+            continue
+        dev = np.array([float(r['dev']) for r in sub])
+        tbl.append([nm + '(已分离)', len(dev), '%+.2f' % dev.mean(), '%.2f' % dev.std(),
+                    '%+.2f ~ %+.2f' % (dev.min(), dev.max())])
+    tbl.append(['配对成员-未分离(融合单点)', len(unsep), '—', '—', '—'])
+    tbl.append(['未检出/未匹配', len(rs) - len(fitted), '—', '—', '—'])
+    table(tbl)
+    return rs
+
+doc.add_heading('第二章  批量验证一: 独立目标(无同距同速邻居)', level=1)
+p('场景设计: 12 个场景, 每场景角反 + 1~3 个独立目标(其中 3 场景为换种子重复、1 场景单目标种子散布), '
+  '覆盖距离 100~290 m、方位 ±70°(横穿)、俯仰 ±15°、RCS 4~15 dBsm、半 bin 距离、5 个随机种子; '
+  '全部目标 TXRX 非相参 SNR > 0 dB(验证口径)。'
+  '匹配规则: 期望 RD 单元 ±2/±3 bin、方位 ±3° 窗内一对一认领(±1° 邻域内取方位最近者)。')
+rs1 = stat_table('I', '2.1  统计结果', pair_label=False)
+img('fig_I_stat.png', cap='图 2-1  独立目标批: 拟合 vs 真值散点(左)与偏差分布(右)')
+p('结论: 独立点全链路(相参图读数四要素 + PLL 补偿)在上述范围内偏差均值与散布满足 ±1 dB 量级; '
+  '宽角(±70°)与俯仰(±15°)无系统性掉档(仿真阵元近全向, 实机方向图到位后需经 angGainDb 钩子复核)。')
+
+doc.add_heading('第三章  批量验证二: OMP 双目标(角隔约 5°~12°)', level=1)
+p('场景设计: 8 个场景, 每场景角反 + 一对同距同速不同角目标(分离度 5°/6°/8°/10°/12°, 强弱组合含等强与 10~12 dB 差)'
+  ' + 1 个独立参照目标; 分别统计 OMP 第一目标(母点)与第二目标的拟合精度。'
+  '全部目标 TXRX 非相参 SNR > 0 dB。')
+rs2 = stat_table('O', '3.1  统计结果')
+img('fig_O_stat.png', cap='图 3-1  OMP 双目标批: 拟合 vs 真值(按角色着色)与偏差分布')
+p('结论: 第一/第二目标均走 α 域联合权重; 分离度 ≥5° 时两成员精度同档(散布 ±1 dB 量级, '
+  '含一个 260 m 弱簇强成员 −2.2 dB 离群); 同簇角度估计对第二目标方位的微小残差不影响 RCS 口径(读数与权重同源)。')
+
+doc.add_heading('第四章  批量验证三: DML 双目标(角隔约 0.8°~1.2°, 亚 OMP 区)', level=1)
+p('场景设计: 8 个场景, 每场景角反 + 一对同距同速不同角目标 + 1 个独立参照目标(等强 0.8° 近距场景 D08 除外)。'
+  '分离度 0.8°/1.0°/1.2°, 强弱组合以"母点 10~12 dBsm + 弱成员 −4~4 dBsm"为主——这是探针确认的 DML 可靠触发窗;'
+  '另含等强对照(D01 等强 1.0°、D08 等强 0.8°)。全部目标 TXRX 非相参 SNR > 0 dB。'
+  '说明: 该分离度下 OMP 第一原子吸收双目标能量、残差不过 12 dB 门限, 由 DML 双原子联合拟合接手(见 1.3 与图 1-3 的路由)。')
+rs3 = stat_table('D', '4.1  统计结果')
+img('fig_D_stat.png', cap='图 4-1  DML 双目标批: 拟合 vs 真值(按角色着色)与偏差分布')
+p('结论(分三个层次, 均为本批实测):', bold=True)
+p('(1) 触发率与触发窗: 8 场景中 3 个触发 DML(等强 1.0°@200m; 10/−4@1.2°@150m; 12/0@1.0°@150m), '
+  '其余按设计回退输出融合单点。触发窗是"分离度×弱成员电平"的二维窗: 弱成员残余能量须 >3 dB 改善门限, '
+  '且间隔太紧(0.8°)时第一原子把弱成员也吸掉、再强也不触发。')
+p('(2) 已分离成员的读数: 等强对(10/10@1.0°)两成员偏差 +1.8/−1.9 dB——这正是条件数 κ≈3.5 下联合 LS 的物理散布, '
+  '属预期。强弱悬殊对(12 dB 差以上)两成员读数被拉向能量平均(12/0 对读出 6.8/6.5): '
+  'κ 封顶(=4)的奇异值截断让共线方向的幅度差解不出来, 退化为"总功率按交叠分配"的保守解——'
+  '单成员 σ 在此 regime 不可信, 需多 cell 相参合成专项(附录 A.3②); 该 regime 点应携带低置信标志。')
+p('(3) 融合回退的行为正确: 融合单点读数≈两目标相干和——10+(−4) 相消型读 10.0, 10+10 同相型读 15.0(+5 dB), '
+  '符合"回退输出融合值, 不谎称能分开"的设计。另实测到一次 DML 双触发产生的虚假伴生对(D05), '
+  '污染簇内点配对, 列入 A.3⑤ 专项。')
+
+doc.add_heading('附录  口径声明与遗留', level=1)
+p('A.1 无先知声明: 生产链(写入点云的 rcsDb)全部输入 = 角反已知参数 + 标定遍自测数据 + 芯片手册/配置 + 目标自身数据;'
+  ' 真值仅用于本报告的评分统计与主程序的诊断打印(逐目标对比/链路预算审计)。')
+p('A.2 产品口径: 方位 ±70°(横穿)、俯仰 ±15°(高空/地面可通行判定)、距离 >300 m(8T8R 方案)。')
+p('A.3 遗留专项: ① DOA 方位-俯仰二维联合估计(θ̂ 系统偏差); ② 多 cell 相参合成(亚波束弱成员散布);'
+  ' ③ thrSweep 门限重标定(300m+ 弱目标检出率); ④ SVA 窗 winStat 重标定;'
+  ' ⑤ DML 触发窗标定(残差改善门限的假警扫描、弱成员电平下限与虚假伴生对抑制)。')
+p('A.4 全量逐点明细与场景定义见工程根目录《相参RCS批量验证报告.md》与 main_sim 运行日志。')
+
+doc.save(OUT)
+print('DOCX saved:', OUT)
