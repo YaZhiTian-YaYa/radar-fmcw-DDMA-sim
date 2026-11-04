@@ -304,7 +304,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     legend([hP hM hK hR hC], {'DBF目标(独立,颜色=z)', 'OMP目标1(母点,品红圈)', 'OMP目标2(黑圈)', ...
         'DML目标1(母点,红圈)', 'DML目标2(青圈)'}, 'Location', 'best');
     xlim([-sym10(xPos), sym10(xPos)]); ylim([0, rMax10]);
-    xlabel('x (m)'); ylabel('y (m)'); title('x-y 位置');
+    xlabel('y 横向 (m)'); ylabel('x 纵向 (m)'); title('横向-纵向 位置(俯视: 横向在横轴)');
     nexttile;
     scatter(aziEst, rngEst, 24, zEst, 'filled'); hold on;
     scatter(aziEst(isD1), rngEst(isD1), 40, 'ro', 'LineWidth', 1.5); hold on;
@@ -322,7 +322,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     scatter(zEst(isD2), yPos(isD2), 40, 'co', 'LineWidth', 1.5); hold on;
     scatter(zEst(isOMP2), yPos(isOMP2), 40, 'ko', 'LineWidth', 1.5); grid on; colorbar;
     xlim([-sym10(zEst), sym10(zEst)]); ylim([0, rMax10]);
-    xlabel('z (m)'); ylabel('y (m)'); title('z-y 位置');
+    xlabel('z (m)'); ylabel('x 纵向 (m)'); title('高度-纵向 位置(侧视)');
     nexttile;
     scatter(eleEst, rngEst, 24, zEst, 'filled'); hold on;
     scatter(eleEst(isD1), rngEst(isD1), 40, 'ro', 'LineWidth', 1.5); hold on;
@@ -335,7 +335,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     scatter3(xPos(isD1), yPos(isD1), zEst(isD1), 40, 'ro', 'LineWidth', 1.5); hold on;
     scatter3(xPos(isD2), yPos(isD2), zEst(isD2), 40, 'co', 'LineWidth', 1.5); hold on;
     scatter3(xPos(isOMP2), yPos(isOMP2), zEst(isOMP2), 40, 'ko', 'LineWidth', 1.5); grid on;
-    xlabel('x (m)'); ylabel('y (m)'); zlabel('z (m)'); view(3);
+    xlabel('y 横向 (m)'); ylabel('x 纵向 (m)'); zlabel('z (m)'); view(3);
     title('点云 xyz (可旋转)');
     sgtitle(sprintf(['DML 后点云: 原 %d 点 + DML第二目标 %d 点 | ' ...
         '品红圈=OMP目标1(母点), 黑圈=OMP目标2, 红圈=DML目标1(DBF角已替换), 青圈=DML目标2'], ...

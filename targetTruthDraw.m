@@ -39,7 +39,7 @@ zLim = [min(zT), max(zT)];  if diff(zLim) == 0, zLim = zLim(1) + [-1, 1]; end  %
          'FontSize', 7);                                       % 目标序号(对照场景文档)
     grid on; colorbar; clim(zLim);
     xlim([-sym10(xT), sym10(xT)]); ylim([0, rMax10]);
-    xlabel('x (m)'); ylabel('y (m)'); title('x-y 位置 (颜色=高度z, 标注=目标序号)');
+    xlabel('y 横向 (m)'); ylabel('x 纵向 (m)'); title('横向-纵向 位置(俯视: 横向在横轴, 颜色=高度z, 标注=目标序号)');
     nexttile;
     scatter(aziT, R0, 24, val2rgb(zT), 'filled'); hold on;
     scatter(aziT(isC), R0(isC), 80, 'r*', 'LineWidth', 1);
@@ -53,14 +53,14 @@ zLim = [min(zT), max(zT)];  if diff(zLim) == 0, zLim = zLim(1) + [-1, 1]; end  %
     nexttile;
     scatter(zT, yT, 24, val2rgb(zT), 'filled'); grid on; colorbar; clim(zLim);
     xlim([-sym10(zT), sym10(zT)]); ylim([0, rMax10]);
-    xlabel('z (m)'); ylabel('y (m)'); title('z-y 位置');
+    xlabel('z (m)'); ylabel('x 纵向 (m)'); title('高度-纵向 位置(侧视)');
     nexttile;
     scatter(eleT, R0, 24, val2rgb(zT), 'filled'); grid on; colorbar; clim(zLim);
     xlim([-sym10(eleT), sym10(eleT)]); ylim([0, rMax10]);
     xlabel('俯仰角 (deg)'); ylabel('距离 (m)'); title('俯仰角-距离');
     nexttile;
     scatter3(xT, yT, zT, 24, val2rgb(zT), 'filled'); grid on;
-    xlabel('x (m)'); ylabel('y (m)'); zlabel('z (m)'); view(3);
+    xlabel('y 横向 (m)'); ylabel('x 纵向 (m)'); zlabel('z (m)'); view(3);
     title('目标 xyz (可旋转)');
     sgtitle(sprintf('真值目标图: 共 %d 个(颜色=高度z, 红星=校准角反, 序号同《目标场景设计说明》) —— 与 fig17/19/21 点云对比看漏检与虚假点', nTgtT));
 end

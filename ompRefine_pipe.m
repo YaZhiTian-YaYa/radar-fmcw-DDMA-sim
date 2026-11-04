@@ -238,7 +238,7 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     scatter(xPos(is1), yPos(is1), 40, 'mo', 'LineWidth', 1.5); hold on;
     scatter(xPos(is2), yPos(is2), 40, 'ko', 'LineWidth', 1.5); grid on; colorbar;
     xlim([-sym10(xPos), sym10(xPos)]); ylim([0, rMax10]);
-    xlabel('x (m)'); ylabel('y (m)');
+    xlabel('y 横向 (m)'); ylabel('x 纵向 (m)');
     title('x-y 位置 (品红圈=OMP目标1, 黑圈=OMP目标2)');
     nexttile;
     scatter(aziEst, rngEst, 24, zEst, 'filled'); hold on;
@@ -253,7 +253,7 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     scatter(zEst, yPos, 24, zEst, 'filled'); hold on;
     scatter(zEst(is2), yPos(is2), 40, 'ko'); grid on; colorbar;
     xlim([-sym10(zEst), sym10(zEst)]); ylim([0, rMax10]);
-    xlabel('z (m)'); ylabel('y (m)'); title('z-y 位置');
+    xlabel('z (m)'); ylabel('x 纵向 (m)'); title('高度-纵向 位置(侧视)');
     nexttile;
     scatter(eleEst, rngEst, 24, zEst, 'filled'); hold on;
     scatter(eleEst(is2), rngEst(is2), 40, 'ko'); grid on; colorbar;
@@ -262,7 +262,7 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     nexttile;
     scatter3(xPos, yPos, zEst, 24, zEst, 'filled'); hold on;
     scatter3(xPos(is2), yPos(is2), zEst(is2), 40, 'ko'); grid on;
-    xlabel('x (m)'); ylabel('y (m)'); zlabel('z (m)'); view(3);
+    xlabel('y 横向 (m)'); ylabel('x 纵向 (m)'); zlabel('z (m)'); view(3);
     title('点云 xyz (可旋转)');
     sgtitle(sprintf('OMP 后点云: 原 %d 点 + OMP第二目标 %d 点 (黑圈)', nTgt, n2nd));
     end                                             % if drawFigs(云图段)

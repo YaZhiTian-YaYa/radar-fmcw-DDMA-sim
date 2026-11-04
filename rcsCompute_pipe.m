@@ -284,7 +284,7 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
     scatter(xPos, yPos, 24, rcsDb, 'filled'); hold on;
     plot(0, rcsCfg.corner.R, 'r*', 'MarkerSize', 12);   % 角反 0° 布设位(x=0, y=R), 标定参考
     axis equal; grid on; colorbar;
-    xlabel('x (m)'); ylabel('y (m)');
+    xlabel('y 横向 (m)'); ylabel('x 纵向 (m)');
     title('点云 x-y 位置 (颜色=RCS, 星=角反)');
     sgtitle(sprintf('RCS 估计 (角反 %.0f dBsm 标定, K0=%.1f/K0Coh=%.1f dB): 独立点相参图 %d / α域 %d 点', ...
         rcsCfg.corner.sigDb, rcsCfg.K0Seg(1), rcsCfg.K0CohSeg(1), sum(domFlg == 1), sum(domFlg == 0)));
