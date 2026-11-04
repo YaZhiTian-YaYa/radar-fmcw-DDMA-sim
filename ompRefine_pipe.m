@@ -227,6 +227,7 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     xPos   = rngEst .* cosd(eleEst) .* sind(aziEst);
     yPos   = rngEst .* cosd(eleEst) .* cosd(aziEst);
     is2    = false(1, numel(tgtOut));  is2(nTgt+1:end) = true;   % 追加段 = 第二目标
+    is1    = logical([tgtOut.splitTag] == 1);                    % OMP目标1(母点, 通常较强)
     rMax10 = ceil(dims.rngUse * 3e8/(2*dims.B) / 10) * 10;
     sym10  = @(v) max(ceil(max(abs(v)) / 10) * 10, 10);   % 全 0 时保底 ±10, 防 xlim([0,0]) 非法
 
@@ -234,9 +235,11 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     tiledlayout(2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
     nexttile;
     scatter(xPos, yPos, 24, zEst, 'filled'); hold on;
-    scatter(xPos(is2), yPos(is2), 40, 'ko'); grid on; colorbar;
+    scatter(xPos(is1), yPos(is1), 40, 'mo', 'LineWidth', 1.5); hold on;
+    scatter(xPos(is2), yPos(is2), 40, 'ko', 'LineWidth', 1.5); grid on; colorbar;
     xlim([-sym10(xPos), sym10(xPos)]); ylim([0, rMax10]);
-    xlabel('x (m)'); ylabel('y (m)'); title('x-y 位置 (黑圈=OMP第二目标)');
+    xlabel('x (m)'); ylabel('y (m)');
+    title('x-y 位置 (品红圈=OMP目标1, 黑圈=OMP目标2)');
     nexttile;
     scatter(aziEst, rngEst, 24, zEst, 'filled'); hold on;
     scatter(aziEst(is2), rngEst(is2), 40, 'ko'); grid on; colorbar;

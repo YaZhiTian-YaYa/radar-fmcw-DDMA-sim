@@ -188,7 +188,7 @@ function rcsCfg = rcsCalibrate_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, p
         end
         a3c = sqrt(max(pk3c, 0));                             % 角维幅度抛物线(同 cohReadAt)
         dAc = 2*(a3c(3) - a3c(1)) / (a3c(1) + 2*a3c(2) + a3c(3) + eps);
-        CpkC = (a3c(2) - (a3c(1) - a3c(3)) * max(min(dAc, 2), -2) / 4).^2;
+        CpkC = (a3c(2) - (a3c(1) - a3c(3)) * max(min(dAc, 1), -1) / 4).^2;
         cohFloorDb = 10*log10(double(accumCfg.cohFloorPow));  % 相参域噪底(标定遍, 含取峰统计)
         snrCohCal  = 10*log10(CpkC * dopRecC + eps) - (cohFloorDb + shapeAt(rGate));
         K0Coh = sigCalDb - snrCohCal - 40*log10(Rcal);

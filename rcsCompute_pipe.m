@@ -297,7 +297,7 @@ for bb = mod((b0-2):(b0), nA) + 1
 end
 a3a = sqrt(max(pk3, 0));                        % 角维幅度抛物线: 顶点 = A2 − (A1−A3)·d/4
 dA = 2*(a3a(3) - a3a(1)) / (a3a(1) + 2*a3a(2) + a3a(3) + eps);
-Cpk = (a3a(2) - (a3a(1) - a3a(3)) * max(min(dA, 2), -2) / 4).^2;
+Cpk = (a3a(2) - (a3a(1) - a3a(3)) * max(min(dA, 1), -1) / 4).^2;
 dRec = 1;                                       % 多普勒恢复比: 8 根码线逐线求(肩点回退 1)
 if isfield(accumCfg, 'chirpPosMap')
     binsG = double(accumCfg.chirpPosMap(k, sb, :));    % 每 TX 各自被抓的 chirpPos bin

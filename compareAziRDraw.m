@@ -43,22 +43,25 @@ function figC = compareAziRDraw(targets, dims, stageDbf, stageOmp, stageDml)
     % ---- (2,1) OMP 后 ----
     nexttile;
     scatter(stageOmp.azi, stageOmp.rng, 24, val2rgb(stageOmp.z), 'filled'); hold on;
+    scatter(stageOmp.azi(stageOmp.isO1), stageOmp.rng(stageOmp.isO1), 44, 'mo', 'LineWidth', 1.5);
     scatter(stageOmp.azi(stageOmp.isO2), stageOmp.rng(stageOmp.isO2), 44, 'ko', 'LineWidth', 1.5);
     grid on; xlim([-xLimAbs, xLimAbs]); ylim([0, rMax10]); clim([cLo, cHi]);
     xlabel('方位角 (deg)'); ylabel('距离 (m)');
-    legend({'检测点', 'OMP第二目标(黑圈)'}, 'Location', 'northeast');
-    title(sprintf('OMP 后: 比上一级多检出 %d 个点(黑圈)', nnz(stageOmp.isO2)));
+    legend({'DBF目标(独立)', 'OMP目标1(母点,品红圈)', 'OMP目标2(黑圈)'}, 'Location', 'northeast');
+    title(sprintf('OMP 后: 比上一级多检出 %d 个点(黑圈), 配对母点 %d 个(品红圈)', ...
+        nnz(stageOmp.isO2), nnz(stageOmp.isO1)));
 
     % ---- (2,2) DML 后 ----
     nexttile;
     scatter(stageDml.azi, stageDml.rng, 24, val2rgb(stageDml.z), 'filled'); hold on;
+    scatter(stageDml.azi(stageDml.isO1), stageDml.rng(stageDml.isO1), 44, 'mo', 'LineWidth', 1.5);
     scatter(stageDml.azi(stageDml.isO2), stageDml.rng(stageDml.isO2), 44, 'ko', 'LineWidth', 1.5);
     scatter(stageDml.azi(stageDml.isD1), stageDml.rng(stageDml.isD1), 44, 'ro', 'LineWidth', 1.5);
     scatter(stageDml.azi(stageDml.isD2), stageDml.rng(stageDml.isD2), 44, 'co', 'LineWidth', 1.5);
     grid on; xlim([-xLimAbs, xLimAbs]); ylim([0, rMax10]); clim([cLo, cHi]); colorbar;
     xlabel('方位角 (deg)'); ylabel('距离 (m)');
-    legend({'检测点', 'OMP第二目标(黑圈)', 'DML第一目标(红圈)', 'DML第二目标(青圈)'}, ...
-           'Location', 'northeast');
+    legend({'DBF目标(独立)', 'OMP目标1(母点,品红圈)', 'OMP目标2(黑圈)', ...
+            'DML目标1(母点,红圈)', 'DML目标2(青圈)'}, 'Location', 'northeast');
     title(sprintf('DML 后: 比上一级多检出 %d 个点(青圈), 另替换 %d 个母点角度(红圈)', ...
                   nnz(stageDml.isD2), nnz(stageDml.isD1)));
     sgtitle('方位角-距离逐级对比: 真值 → DBF → OMP(大间隔) → DML(近角) —— 同轴同色标');

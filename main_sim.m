@@ -171,7 +171,7 @@ targets(1) = struct('gate_R', 5, 'gate_D', 0, 'azi', 0, 'ele', 0, 'rcsDb', -5, .
                     'rcsPhDeg', 0, 'vTan', 0, 'isCorner', 1);
 T = [ ...
 % ---- 目标表(每行一个目标; rcsPh 列 = 初相 deg, 默认 0) ----
- 200/dims.DeltaR   0  0   0   10   0  0  0];   % 300m 目标
+ 300/dims.DeltaR   0  0   0   10   0  0  0];   % 300m 目标
 for k = 1:size(T, 1)
     vRadK = T(k,2)*dims.Vres;                          % 法向速度 (m/s)
     if T(k,7) == 0                                     % dir=0: Y 向行驶
@@ -420,6 +420,7 @@ fprintf('OMP 角度超分辨 : 判定出OMP第二目标 %d 个 (判定门限 %d 
 % OMP 阶段点云快照(图34 用; DML 还会改写方位)
 stageOmp = struct('azi', [tgtOut.azimuth], 'rng', [tgtOut.range], ...
                   'z', [tgtOut.range].*sind([tgtOut.elevation]), ...
+                  'isO1', [tgtOut.splitTag] == 1, ...      % OMP目标1(母点=检测先得, 通常较强)
                   'isO2', logical([tgtOut.isOMP2nd]));
 
 %% ---- DML 角度超分辨(近角对; 图31 过程图 / 图32 点云) ----
@@ -450,6 +451,7 @@ figTruth = targetTruthDraw(targets, prm, dims);
 %% ---- 方位角-距离四联对比(图34; 真值/DBF/OMP/DML 同轴同色标) ----
 stageDml = struct('azi', [tgtOut.azimuth], 'rng', [tgtOut.range], ...
                   'z', [tgtOut.range].*sind([tgtOut.elevation]), ...
+                  'isO1', [tgtOut.splitTag] == 1, ...
                   'isO2', logical([tgtOut.isOMP2nd]), 'isD1', logical([tgtOut.dmlPass]), ...
                   'isD2', logical([tgtOut.isDML2nd]));
 figCmpAzi = compareAziRDraw(targets, dims, stageDbf, stageOmp, stageDml);
