@@ -149,9 +149,9 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
             [pPkDb, snrC] = cohReadAt(accumCfg, fftCfg, rcsCfg, tgtOut(t), dims);
             % 俯仰 z 行失配补偿: 读数增益 = gDb(θ̂el) ≤ gDb(0)=10lg64, 补回 ele=0 口径
             % (解析同式: snrAnaCalc 的 cohGainDb 实参, 一维方位 FFT 不含 z 行导向)。
-            % θ̂ 夹到 ±5°(车载俯仰物理先验)且用簇中位: 弱目标单点俯仰估计噪声 ±8°
-            % 经增益斜率放大成 +4dB 过补偿(A3-3), 双保险后野值不再进补偿
-            elC = max(min(elMed(t), 5), -5);
+            % θ̂ 夹到 ±15°(产品口径: 俯仰 ±15° 可通行判定, 2026-11-04 由 ±5 放开——
+            % V3 批 ele±8~12° 实测被旧夹紧砍成 −4~−6dB)且用簇中位抑制单点野值
+            elC = max(min(elMed(t), 15), -15);
             gEl = cohGainDbf(zRowV, lambdaV, elC) - gCoh0;
             snrVal = snrC - gEl;                             % gEl ≤ 0 → 补回 ≥0 dB
             ampVal = pPkDb;                                  % 相参功率读数 dB(噪底前)
