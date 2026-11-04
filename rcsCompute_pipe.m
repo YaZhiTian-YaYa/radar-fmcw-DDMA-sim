@@ -89,6 +89,16 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
     domFlg = zeros(nTgt, 1);
     rcsAlp = NaN(nTgt, 1);                       % α 域对照值(独立点=旧口径, 仅供打印对比)
 
+    % 簇中位俯仰(野值抑制): 同簇点(±1bin 同多普勒)共享同一目标, 单点 θ̂ 噪声(弱目标
+    % ±5°+)经增益斜率放大成 +dB 过补偿 —— 取簇中位数代入补偿(A3-3 案例: 簇内一点
+    % θ̂≈8° 单点 +3.5, 簇中位 ≈0° → 全簇读数一致合法); 合法俯仰(全簇同角)不受影响
+    elMed = zeros(nTgt, 1);
+    for t = 1:nTgt
+        sameM = abs([tgtOut.rangIdx] - tgtOut(t).rangIdx) <= 1 & ...
+                abs([tgtOut.dopplerIdx] - tgtOut(t).dopplerIdx) <= 1;
+        elMed(t) = median(double([tgtOut(sameM).elevation]));
+    end
+
     for t = 1:nTgt
         % 配对成员判定(四类): OMP第二/DML第二/OMP母点/DML母点 —— 这些点保持 α 域
         isPairMem = tgtOut(t).isOMP2nd == 1 || tgtOut(t).isDML2nd == 1 || ...
@@ -138,8 +148,11 @@ function [tgtOut, rcsCfg, figRcs] = rcsCompute_pipe(tgtOut, detCfg, AntCaliData,
             % ---- 独立点: 相参累积图读数(与角反相参锚定同法 → K0Coh 相消) ----
             [pPkDb, snrC] = cohReadAt(accumCfg, fftCfg, rcsCfg, tgtOut(t), dims);
             % 俯仰 z 行失配补偿: 读数增益 = gDb(θ̂el) ≤ gDb(0)=10lg64, 补回 ele=0 口径
-            % (解析同式: snrAnaCalc 的 cohGainDb 实参, 一维方位 FFT 不含 z 行导向)
-            gEl = cohGainDbf(zRowV, lambdaV, el) - gCoh0;
+            % (解析同式: snrAnaCalc 的 cohGainDb 实参, 一维方位 FFT 不含 z 行导向)。
+            % θ̂ 夹到 ±5°(车载俯仰物理先验)且用簇中位: 弱目标单点俯仰估计噪声 ±8°
+            % 经增益斜率放大成 +4dB 过补偿(A3-3), 双保险后野值不再进补偿
+            elC = max(min(elMed(t), 5), -5);
+            gEl = cohGainDbf(zRowV, lambdaV, elC) - gCoh0;
             snrVal = snrC - gEl;                             % gEl ≤ 0 → 补回 ≥0 dB
             ampVal = pPkDb;                                  % 相参功率读数 dB(噪底前)
             K0v    = rcsCfg.K0CohSeg;
