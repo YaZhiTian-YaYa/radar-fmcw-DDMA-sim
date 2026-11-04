@@ -264,7 +264,9 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
     scatter3(xPos(is2), yPos(is2), zEst(is2), 40, 'ko'); grid on;
     xlabel('y 横向 (m)'); ylabel('x 纵向 (m)'); zlabel('z (m)'); view(3);
     title('点云 xyz (可旋转)');
-    sgtitle(sprintf('OMP 后点云: 原 %d 点 + OMP第二目标 %d 点 (黑圈)', nTgt, n2nd));
+    tagCnt = accumarray(double([tgtOut.splitTag]).' + 1, 1, [5 1]);   % 0~4 → 五类计数
+    sgtitle(sprintf(['OMP 后点云: 独立点 %d | OMP第一目标(母点,品红圈) %d | ' ...
+        'OMP第二目标(黑圈) %d | DML第一目标 %d | DML第二目标 %d'], tagCnt));
     end                                             % if drawFigs(云图段)
 
     ompCfg = struct('figSeed', figSeed, 'figCloud', figCloud, 'n2nd', n2nd, ...

@@ -171,7 +171,8 @@ targets(1) = struct('gate_R', 5, 'gate_D', 0, 'azi', 0, 'ele', 0, 'rcsDb', -5, .
                     'rcsPhDeg', 0, 'vTan', 0, 'isCorner', 1);
 T = [ ...
 % ---- 目标表(每行一个目标; rcsPh 列 = 初相 deg, 默认 0) ----
- 300/dims.DeltaR   0  0   0   10   0  0  0];   % 300m 目标
+ 200/dims.DeltaR   0  0   0   10   0  0  0;...
+ 200/dims.DeltaR   0  10   0   5   20  0  0];   % 300m 目标
 for k = 1:size(T, 1)
     vRadK = T(k,2)*dims.Vres;                          % 法向速度 (m/s)
     if T(k,7) == 0                                     % dir=0: Y 向行驶
@@ -440,7 +441,7 @@ fprintf('DML 角度超分辨 : 判定出第二目标 %d 个 (门限 %g dB); 门�
 
 %% ---- 点角色标志(splitTag): 0=独立 1=OMP点1 2=OMP点2 3=DML点1 4=DML点2(打印/下游用) ----
 % OMP/DML 均完成后统一归类; 判定优先级: 第二目标标志优先于母点标志(OMP 先于 DML)
-splitNames = {'独立点','OMP点1','OMP点2','DML点1','DML点2'};   % splitTag 由 OMP/DML 模块在判定处打(单一事实来源)
+splitNames = {'独立点','OMP第一目标','OMP第二目标','DML第一目标','DML第二目标'};   % splitTag 由 OMP/DML 模块在判定处打(单一事实来源)
 tagCnt = accumarray([tgtOut.splitTag].' + 1, 1, [5 1]);   % splitTag 0 基, accumarray 需正下标
 fprintf(['点角色统计      : %s' newline], strjoin(cellfun(@(n, nm) sprintf('%s×%d', nm, n), ...
     num2cell(tagCnt), splitNames(:), 'UniformOutput', false), ' | '));

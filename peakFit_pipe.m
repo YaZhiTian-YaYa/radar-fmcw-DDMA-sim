@@ -94,7 +94,7 @@ for g = 1:numel(targets)
     [~, im] = min(dTmp);
     t  = idx(im);  claimedFit(t) = true;
     an = anaFun(targets(g).gate_R*dims.DeltaR, targets(g).rcsDb, targets(g).ele);
-    splitNames = {'独立点','OMP点1','OMP点2','DML点1','DML点2'};   % 与 main_sim splitTag 同源
+    splitNames = {'独立点','OMP第一目标','OMP第二目标','DML第一目标','DML第二目标'};   % 与 main_sim splitTag 同源
     fprintf(['  目标%d @真值 R=%.2f m, v=%+.2f m/s, RCS=%.1f dBsm | 代表点: %s, 峰值点=%d, 簇内 %d 点' newline], ...
         g, targets(g).gate_R*dims.DeltaR, targets(g).gate_D*dims.Vres, targets(g).rcsDb, ...
         splitTagStr(tgtOut(t)), fitRep.isPeak(t), numel(idx));
@@ -141,7 +141,7 @@ end
 function s = splitTagStr(p)
 %SPLITTAGSTR 点角色标签(防御式): 空/缺失/非标量 → '未知(补查)' —— 若打印出未知, 说明
 %   splitTag 链路有漏打点(OMP 初始化+配对, DML 补打), 需回两模块核查
-n = {'独立点','OMP点1','OMP点2','DML点1','DML点2'};
+n = {'独立点','OMP第一目标','OMP第二目标','DML第一目标','DML第二目标'};
 if ~isfield(p, 'splitTag') || ~isscalar(p.splitTag) || isempty(p.splitTag)
     s = '未知(补查)';  return
 end
