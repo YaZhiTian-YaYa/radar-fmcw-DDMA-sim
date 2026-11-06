@@ -51,6 +51,12 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
                                         %   亚半波束对(3dB宽1.88°/角bin 1.4°)分量幅度解算病态, 且实测
                                         %   强弱对发生角度塌缩(两原子都拟到强目标一侧, sep 0.35~0.6°
                                         %   仍给出>3dB假改善, D04/D05 取证) —— 拒绝分离, 输出融合单点
+    thrImprSDml = 1.0;                  % [旋钮] 亚bin基线净改善门限(dB, 2026-11-07): J1 在 1° 网格
+                                        %   取峰, 双原子连续搜索把"亚bin主瓣恢复"偷算进改善量 —— 剥掉
+                                        %   该偏置后(dmlImprDbS): 单目标假改善实测 0.30~0.47(残差吸收
+                                        %   上限), 真等强对 3.03 —— 此门关掉近凝视强目标的幻影第二点。
+                                        %   强弱对真配置不在可行解中(alt 实测 imprS 0.35~0.76), 该 regime
+                                        %   维持融合输出
     kapMaxDml  = 16;                    % [旋钮] Gram 条件数上限(=原子κ=4, 与下方 pinv 封顶同口径):
                                         %   超此双原子近共线, 权重解算不可信(塌缩对实测 κ_G=34~45)
     dmlStepDeg = 0.05;                  % [旋钮] 交替坐标细分步进 (deg): ±1° 内按此步进搜极小
@@ -82,7 +88,11 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     tgtOut(1).dmlKappa = NaN;  tgtOut(1).dmlW1DbU = NaN;  tgtOut(1).dmlW2DbU = NaN;
     tgtOut(1).dmlSigW1 = NaN;  tgtOut(1).dmlSigW2 = NaN;         % LS 权重噪声σ(分离质量)
     tgtOut(1).dmlImprDb = NaN;                                    % 单→双原子残差改善(dB)
+    tgtOut(1).dmlImprDbS = NaN;                                   % 亚bin基线改善(剥网格量化偏置)
     tgtOut(1).dmlResPm  = NaN;                                    % 拟合后残差匹配峰/中位比(dB, 真假分离判别)
+    tgtOut(1).dmlAltAng = [NaN NaN];                              % 可行分离备选解角度(sep/κ 达标中 J 最优)
+    tgtOut(1).dmlAltWDb = [NaN NaN];                              % 备选解权重(dB)
+    tgtOut(1).dmlAltImprS = NaN;                                  % 备选解亚bin基线改善(dB)
     tgtOut(1).dmlW1DbMc = NaN;  tgtOut(1).dmlW2DbMc = NaN;        % 多 cell 合成权重(dB, 遗留②)
     tgtOut(1).dmlW1DbSc = NaN;  tgtOut(1).dmlW2DbSc = NaN;        % 单 cell 权重备份(mcOn 时)
     tgtOut(1).dmlKeff   = NaN;                                    % 多 cell 等效快照数 Σ|h|²/|h主|²
@@ -95,7 +105,10 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     [tgtOut.dmlKappa] = deal(NaN);  [tgtOut.dmlW1DbU] = deal(NaN);
     [tgtOut.dmlW2DbU] = deal(NaN);  [tgtOut.dmlSigW1] = deal(NaN);
     [tgtOut.dmlSigW2] = deal(NaN);  [tgtOut.dmlImprDb] = deal(NaN);
-    [tgtOut.dmlResPm] = deal(NaN);  [tgtOut.dmlW1DbMc] = deal(NaN);
+    [tgtOut.dmlImprDbS] = deal(NaN); [tgtOut.dmlResPm] = deal(NaN);
+    [tgtOut.dmlW1DbMc] = deal(NaN);
+    [tgtOut.dmlAltAng] = deal([NaN NaN]);  [tgtOut.dmlAltWDb] = deal([NaN NaN]);
+    [tgtOut.dmlAltImprS] = deal(NaN);
     [tgtOut.dmlW2DbMc] = deal(NaN); [tgtOut.dmlW1DbSc] = deal(NaN);
     [tgtOut.dmlW2DbSc] = deal(NaN); [tgtOut.dmlKeff]   = deal(NaN);
 
@@ -131,6 +144,15 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         [J1s, p1] = max(abs(b).^2 / 36);
         J1 = C0 - J1s;
         thS = aziGrid(p1);                               % 强目标角度(所有起点的 θ1)
+        % 亚bin单原子基线角(2026-11-07 残差解剖: J1 网格量化的改善量偏置, 见写回段 dmlImprDbS)
+        if p1 > 1 && p1 < numel(b)
+            bbS = abs(b(p1-1:p1+1));
+            d1s = 0.5*(bbS(1) - bbS(3)) / (bbS(1) - 2*bbS(2) + bbS(3) + eps);
+            d1s = max(min(d1s, 0.5), -0.5);
+        else
+            d1s = 0;
+        end
+        ang1s = aziGrid(p1) + d1s;
 
         % ---- 残差匹配曲线 + 候选峰(第二角度起点, 限于 DBF 主峰 ±dmlSpanDeg) ----
         a1ls = (A_dml(:, p1)' * x) / (A_dml(:, p1)' * A_dml(:, p1));
@@ -143,6 +165,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         nCand = numel(pkI);                              % 实际可用峰数(可能少于 nStart)
 
         % ---- 多起点交替坐标细分(每起点: 两角度联合交替 ±1° 内 dmlStepDeg ×nSweep 轮) ----
+        altJ = inf;  altTh1 = NaN;  altTh2 = NaN;  altW = [NaN; NaN];  % 可行分离备选解
         % 【2026-11-06 反塌缩约束实验结论: 已回退】强制 |th1−th2|≥0.7° 的投影搜索会让第二原子
         % 被迫正交(κ_G≈1.2), 转而吸收强目标旁瓣的导向模型误差(实测单目标假改善 3.5~4.9dB,
         % 骗过 3dB 门限, C1/C2 对照 2~3 个假通过); 无约束搜索下第二原子自然滑向塌缩(改善<3dB,
@@ -175,6 +198,12 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
             if Jf < bestJ
                 bestJ = Jf;  bTh1 = th1;  bTh2 = th2;  bW = aS;  bSt = st;
             end
+            % 可行分离备选解跟踪(2026-11-07): 满足 sep≥sepMinDml 且 κ_G≤kapMaxDml 的起点解中
+            % 记 J 最小者 —— 判别实验: 真强弱对的真配置是否以高 imprS 存在、仅被 J 准则淘汰
+            GkS = A2f' * A2f;  svS = svd(GkS);
+            if abs(th1 - th2) > sepMinDml && svS(1)/max(svS(2), eps) <= kapMaxDml && Jf < altJ
+                altJ = Jf;  altTh1 = th1;  altTh2 = th2;  altW = aS;
+            end
         end
 
         % ---- 角度升序整理(权重与升序角度对齐) ----
@@ -196,9 +225,14 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         Wf   = inv2x2(Gk) * (A2s' * x);
         kapG = svk(1) / max(svk(2), eps);
 
-        % ---- 第二目标判定(残差改善 + 间隔窗[sepMinDml, sepLimDeg] + 条件数上限) ----
+        % ---- 第二目标判定(残差改善 + 亚bin净改善 + 间隔窗 + 条件数上限) ----
         imprDb = 10 * log10(max(J1, eps) / max(bestJ, eps));
-        dmlPass = (imprDb > thrDmlDb) && (abs(ang1 - ang2) > sepMinDml) && ...
+        % 亚bin基线净改善: 剥掉 J1 网格量化偏置(格点抛物线插值角 + steerFitAt 重投影)
+        a1sFit = fitFun(ang1s);
+        J1sRes = C0 - abs(a1sFit' * x)^2 / real(a1sFit' * a1sFit);
+        imprDbS = 10 * log10(max(J1sRes, eps) / max(bestJ, eps));
+        dmlPass = (imprDb > thrDmlDb) && (imprDbS > thrImprSDml) && ...
+                  (abs(ang1 - ang2) > sepMinDml) && ...
                   (abs(ang1 - ang2) <= sepLimDeg) && (kapG <= kapMaxDml);
 
         % ---- 写回逐点结果 ----
@@ -208,6 +242,13 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         tgtOut(t).dmlW1   = ampW(1);  tgtOut(t).dmlW2 = ampW(2);   % 线性幅度(RCS 推算用)
         tgtOut(t).dmlKappa = kapG;
         tgtOut(t).dmlImprDb = imprDb;
+        tgtOut(t).dmlImprDbS = imprDbS;
+        % 可行分离备选解的净改善(判别实验): 备选解角度/权重/亚bin基线改善
+        tgtOut(t).dmlAltAng = [min(altTh1, altTh2), max(altTh1, altTh2)];
+        A2alt = [fitFun(tgtOut(t).dmlAltAng(1)), fitFun(tgtOut(t).dmlAltAng(2))];
+        Walt  = pinv(A2alt, max(svd(A2alt)) / 4) * x;
+        tgtOut(t).dmlAltWDb  = [20*log10(abs(Walt(1)) + eps), 20*log10(abs(Walt(2)) + eps)];
+        tgtOut(t).dmlAltImprS = 10 * log10(max(J1sRes, eps) / max(altJ, eps));
         % ---- 残差结构检验(真假分离判别, 2026-11-06): 拟合后残差匹配曲线的峰/中位比 ----
         % 真对: 两原子吸收全部目标能量, 残差≈噪声 → 峰/中位比≈噪声起伏(低);
         % 假分离(第二原子吃裙边/旁瓣模型误差): 残差仍含未解释结构 → 峰/中位比显著高。
