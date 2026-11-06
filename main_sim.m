@@ -37,7 +37,7 @@
 %  ========================================================================
 clc; close all;
 % 钩子变量(批量案例 runCases*.m / 门限标定 thrSweep_ompdml.m 注入, 平时不存在)
-clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride;
+clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride cfarFarScale;
 if exist('seedOverride', 'var') && ~isempty(seedOverride), rng(seedOverride); else, rng(4); end
          % 固定随机种子(照 96 修法): 种子只决定单实现统计起伏, 不改物理 —— 泄漏
          % 路径相位/闪烁噪声/PN 实现/量化误差等每次运行完全一致, 结果可复现、
@@ -215,6 +215,15 @@ for qF = 1:numel(cfarFlds)
     tbl = cfarCfg.(cfarFlds{qF});  tbl = tbl(:);
     if numel(tbl) < dims.rngUse, tbl = repmat(tbl, ceil(dims.rngUse/numel(tbl)), 1); end
     cfarCfg.(cfarFlds{qF}) = tbl(1:dims.rngUse);
+end
+
+% ---- 门限灵敏度扫参钩子(遗留③ thrSweep, 2026-11-06): 远场粗门限整体缩放 ----
+% 用途: 300m+ 弱目标(ncSNR≈4dB)检出率受限 → 扫远场粗门限找新工作点; 批跑脚本在 run 前
+% 设 cfarFarScale(标量, []=不改)即可, 仿 seedOverride 模式(clearvars except 名单已加)。
+if exist('cfarFarScale', 'var') && ~isempty(cfarFarScale)
+    farFrom = 300;                                   % bin≥300 ≈ 210m 起的远场段
+    cfarCfg.cfarCoarseList(farFrom:end) = cfarCfg.cfarCoarseList(farFrom:end) * cfarFarScale;
+    fprintf('thrSweep        : 远场(bin≥%d)粗门限 ×%.3f\n', farFrom, cfarFarScale);
 end
 
 %% ---- 天线方向图(图1~6; 逐 TX/RX 复数方向图, 暂未接入任何模块) ----

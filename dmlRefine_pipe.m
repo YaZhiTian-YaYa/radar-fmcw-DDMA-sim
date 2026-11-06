@@ -76,6 +76,8 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     tgtOut(1).dmlW1    = [];   tgtOut(1).dmlW2  = [];            % 线性幅度(RCS 推算用)
     tgtOut(1).dmlKappa = NaN;  tgtOut(1).dmlW1DbU = NaN;  tgtOut(1).dmlW2DbU = NaN;
     tgtOut(1).dmlSigW1 = NaN;  tgtOut(1).dmlSigW2 = NaN;         % LS 权重噪声σ(分离质量)
+    tgtOut(1).dmlImprDb = NaN;                                    % 单→双原子残差改善(dB)
+    tgtOut(1).dmlResPm  = NaN;                                    % 拟合后残差匹配峰/中位比(dB, 真假分离判别)
     [tgtOut.isDML2nd] = deal(0);
     [tgtOut.dmlGate]  = deal(1);
     [tgtOut.dmlPass]  = deal(0);
@@ -84,7 +86,8 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     [tgtOut.dmlW1]    = deal([]);   [tgtOut.dmlW2]   = deal([]);
     [tgtOut.dmlKappa] = deal(NaN);  [tgtOut.dmlW1DbU] = deal(NaN);
     [tgtOut.dmlW2DbU] = deal(NaN);  [tgtOut.dmlSigW1] = deal(NaN);
-    [tgtOut.dmlSigW2] = deal(NaN);
+    [tgtOut.dmlSigW2] = deal(NaN);  [tgtOut.dmlImprDb] = deal(NaN);
+    [tgtOut.dmlResPm] = deal(NaN);
 
     % ---------- 逐点 DML(跳过 OMP 第二目标; 门限内的点才做) ----------
     for t = 1:nTgtAll
@@ -130,6 +133,11 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         nCand = numel(pkI);                              % 实际可用峰数(可能少于 nStart)
 
         % ---- 多起点交替坐标细分(每起点: 两角度联合交替 ±1° 内 dmlStepDeg ×nSweep 轮) ----
+        % 【2026-11-06 反塌缩约束实验结论: 已回退】强制 |th1−th2|≥0.7° 的投影搜索会让第二原子
+        % 被迫正交(κ_G≈1.2), 转而吸收强目标旁瓣的导向模型误差(实测单目标假改善 3.5~4.9dB,
+        % 骗过 3dB 门限, C1/C2 对照 2~3 个假通过); 无约束搜索下第二原子自然滑向塌缩(改善<3dB,
+        % 由判定门 sepMinDml/κ_G 拒绝)。真强弱对的差分贡献低于模型误差地板, 搜索层无解——
+        % 根治在导向模型精度(标定残差进估计)与多 cell, 见报告 A.3⑤。
         bestJ = inf;  bTh1 = [];  bTh2 = [];  bW = [];  bSt = 0;
         for st = 1:nCand
             th1 = thS;  th2 = aziGrid(pkI(st));          % 起点: 强目标 + 第 st 个候选峰
@@ -189,6 +197,14 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         tgtOut(t).dmlW2Db = 20*log10(abs(ampW(2)) + eps);
         tgtOut(t).dmlW1   = ampW(1);  tgtOut(t).dmlW2 = ampW(2);   % 线性幅度(RCS 推算用)
         tgtOut(t).dmlKappa = kapG;
+        tgtOut(t).dmlImprDb = imprDb;
+        % ---- 残差结构检验(真假分离判别, 2026-11-06): 拟合后残差匹配曲线的峰/中位比 ----
+        % 真对: 两原子吸收全部目标能量, 残差≈噪声 → 峰/中位比≈噪声起伏(低);
+        % 假分离(第二原子吃裙边/旁瓣模型误差): 残差仍含未解释结构 → 峰/中位比显著高。
+        % C1/C2 单目标对照实测标定门限(假 2 对/场), D01 真对为低侧参照。
+        rRes  = x - A2s * ampW;
+        mRes  = abs(A_dml' * rRes);
+        tgtOut(t).dmlResPm = 20*log10(max(mRes) / (median(mRes) + eps));
         tgtOut(t).dmlW1DbU = 20*log10(abs(Wf(1)) + eps);
         tgtOut(t).dmlW2DbU = 20*log10(abs(Wf(2)) + eps);
         tgtOut(t).dmlSigW1 = sqrt(max(real(Cwk(1, 1)), 0));

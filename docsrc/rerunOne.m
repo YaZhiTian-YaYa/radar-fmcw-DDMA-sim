@@ -12,6 +12,7 @@ saveFigDir = 'C:\Users\NJ\AppData\Local\Temp\probe95\cohfigs';
 if ~exist(saveFigDir, 'dir'), mkdir(saveFigDir); end
 batchState.idx = ii;  batchState.okRun = true;
 batchState.scnSeed = S.scenes(ii).seed;              % clearvars 前备好(run 后 S 已被抹)
+if isfield(S.scenes(ii), 'cfarScale'), cfarFarScale = S.scenes(ii).cfarScale; else, cfarFarScale = []; end
 targetsOverride = S.scenes(ii).tg;  seedOverride = S.scenes(ii).seed;
 fprintf('\n########## RERUN %d/%d [%s] seed %d ##########\n', ...
     ii, numel(S.scenes), S.scenes(ii).name, S.scenes(ii).seed);
@@ -22,6 +23,27 @@ catch ME
     fprintf('RERUN RUNFAIL [%s]: %s\n', S.scenes(batchState.idx).name, ME.message);
 end
 S = load('C:\Users\NJ\AppData\Local\Temp\probe95\rerunD_state.mat');   % clearvars 后重载状态
+if batchState.okRun
+    farN = sum([tgtOut.rangIdx] >= 300);            % 远场云点数(假警观察, bin300≈210m)
+    fprintf('THRSW %s: 云点%d 远场点(rangIdx≥300)=%d\n', ...
+        S.scenes(batchState.idx).name, numel(tgtOut), farN);
+end
+if batchState.okRun && isfield(tgtOut, 'dmlImprDb')
+    ip = find(~isnan([tgtOut.dmlImprDb]));
+    pv = ip([tgtOut(ip).dmlPass] == 1 | ismember([tgtOut(ip).splitTag], [3 4]));
+    np = setdiff(ip, pv);
+    o2 = [];
+    if ~isempty(np)
+        [~, o2] = maxk([tgtOut(np).dmlImprDb], min(2, numel(np)));  % 未通过中假改善最高 2 点
+    end
+    for t = [pv, np(o2)]
+        pt = tgtOut(t);
+        fprintf(['DMLDIAG %s #%d: ang[%+.2f,%+.2f] sep%.2f pass%d impr%.2f κG=%.1f resPm%.1f | ' ...
+                 'W[%6.2f,%6.2f] 全[%6.2f,%6.2f]\n'], S.scenes(batchState.idx).name, t, ...
+            pt.dmlAng1, pt.dmlAng2, pt.dmlSepDeg, pt.dmlPass, pt.dmlImprDb, pt.dmlKappa, ...
+            pt.dmlResPm, pt.dmlW1Db, pt.dmlW2Db, pt.dmlW1DbU, pt.dmlW2DbU);
+    end
+end
 if batchState.okRun
     r = matchRows(tgtOut, targets, dims, prm, batchState.idx, batchState.scnSeed);
     S.RES = [S.RES; r];
