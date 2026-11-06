@@ -37,7 +37,7 @@
 %  ========================================================================
 clc; close all;
 % 钩子变量(批量案例 runCases*.m / 门限标定 thrSweep_ompdml.m 注入, 平时不存在)
-clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride cfarFarScale mcPairWOverride;
+clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride cfarFarScale mcPairWOverride azDecoupOverride winTypeOverride;
 if exist('seedOverride', 'var') && ~isempty(seedOverride), rng(seedOverride); else, rng(4); end
          % 固定随机种子(照 96 修法): 种子只决定单实现统计起伏, 不改物理 —— 泄漏
          % 路径相位/闪烁噪声/PN 实现/量化误差等每次运行完全一致, 结果可复现、
@@ -70,6 +70,8 @@ Tc = 37e-6;                    % chirp 周期 = Ts + 保护时间 (s); Vres/Vmax
 cr = 2;                        % 步进频占比 = 总跳频带宽 / B
 stepDir = -1;                   % [旋钮] 步进频方向: +1 上跳频(每 chirp 起始频率比上一个高, 现行波形)
 winType  = 'Hanning';           % [旋钮] 2D-FFT 加窗: 'Hanning' | 'SVA'(自适应旁瓣抵消,
+% winTypeOverride: 批跑钩子(仿 cfarFarScale, 遗留④ winStat SVA 档重标定用)
+if exist('winTypeOverride', 'var') && ~isempty(winTypeOverride), winType = winTypeOverride; end
                                %   两遍共用; winStat 随窗类型分档标定, 见链路预算审计段)
                                %   / −1 下跳频(每 chirp 起始频率比上一个低)。
                                %   联动: 射频链路(f_m 序列)、步进频耦合方向(谱线 bin = gate_D −方向·gate_R)、
@@ -359,7 +361,9 @@ fprintf('DOA 俯仰网格    : ±%d° (无模糊 ±%.1f°, 俯仰行间距 %.3f 
 % ---- 校准遍检测链(积累→CFAR→DBF, 为 RCS 标定提供角反仿真测量幅度; 静默不画图) ----
 accumCal = jointAccum_pipe(fftCal, ddmShift, cCal, A_manifold, d_azi, dims, false);
 [~, detCal, tgtCal] = targetDetect_pipe(noiseCal, accumCal, cfarCfg, dims, false);
-[tgtCal, detCal]    = doaEstimate_pipe(detCal, tgtCal, AntCaliData, rowLut, lambda, dims, false);
+% azDecoupOverride: 批跑 A/B 钩子(仿 cfarFarScale) —— false 关闭方位-俯仰几何解耦合(遗留①)
+if ~exist('azDecoupOverride', 'var') || isempty(azDecoupOverride), azDecoupOverride = true; end
+[tgtCal, detCal]    = doaEstimate_pipe(detCal, tgtCal, AntCaliData, rowLut, lambda, dims, false, azDecoupOverride);
 
 %% ---- RCS 标定(角反 SNR 比值法; 图19) ----
 % σ_dB = SNR + 40log10(R) + K0; SNR = |α|²/该门噪底, 与 IF 滤形无关
@@ -403,7 +407,7 @@ if isempty(tgtOut)
 end
 
 %% ---- DBF 测角(方位 DBF + 子阵俯仰 DBF; 图28; 导向矢量校准表来自校准遍) ----
-[tgtOut, detCfg] = doaEstimate_pipe(detCfg, tgtOut, AntCaliData, rowLut, lambda, dims);
+[tgtOut, detCfg] = doaEstimate_pipe(detCfg, tgtOut, AntCaliData, rowLut, lambda, dims, true, azDecoupOverride);
 % DBF 阶段点云快照(OMP/DML 会改写方位, 图34 四联对比用原值)
 stageDbf = struct('azi', [tgtOut.azimuth], 'rng', [tgtOut.range], ...
                   'z', [tgtOut.range].*sind([tgtOut.elevation]));

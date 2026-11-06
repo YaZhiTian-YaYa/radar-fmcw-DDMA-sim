@@ -12,8 +12,11 @@ saveFigDir = 'C:\Users\NJ\AppData\Local\Temp\probe95\cohfigs';
 if ~exist(saveFigDir, 'dir'), mkdir(saveFigDir); end
 batchState.idx = ii;  batchState.okRun = true;
 batchState.scnSeed = S.scenes(ii).seed;              % clearvars 前备好(run 后 S 已被抹)
+batchState.scnName = S.scenes(ii).name;
 if isfield(S.scenes(ii), 'cfarScale'), cfarFarScale = S.scenes(ii).cfarScale; else, cfarFarScale = []; end
 if isfield(S.scenes(ii), 'mc'), mcPairWOverride = logical(S.scenes(ii).mc); else, mcPairWOverride = false; end
+if isfield(S.scenes(ii), 'azDec'), azDecoupOverride = logical(S.scenes(ii).azDec); else, azDecoupOverride = true; end
+if isfield(S.scenes(ii), 'win'), winTypeOverride = S.scenes(ii).win; else, winTypeOverride = []; end
 targetsOverride = S.scenes(ii).tg;  seedOverride = S.scenes(ii).seed;
 fprintf('\n########## RERUN %d/%d [%s] seed %d ##########\n', ...
     ii, numel(S.scenes), S.scenes(ii).name, S.scenes(ii).seed);
@@ -21,7 +24,7 @@ try
     run('F:\Work3\CH_NEW_95_射频_DDMA\main_sim.m');
 catch ME
     batchState.okRun = false;
-    fprintf('RERUN RUNFAIL [%s]: %s\n', S.scenes(batchState.idx).name, ME.message);
+    fprintf('RERUN RUNFAIL [%s]: %s\n', batchState.scnName, ME.message);
 end
 S = load('C:\Users\NJ\AppData\Local\Temp\probe95\rerunD_state.mat');   % clearvars 后重载状态
 if batchState.okRun
@@ -48,6 +51,14 @@ end
 if batchState.okRun
     r = matchRows(tgtOut, targets, dims, prm, batchState.idx, batchState.scnSeed);
     S.RES = [S.RES; r];
+    % DOA 偏差场测量(遗留①): 真值 vs 点云 (方位, 俯仰) 逐目标打印
+    for g = 1:numel(targets)
+        if isnan(r(g, 15)), continue; end
+        pt = tgtOut(r(g, 15));
+        fprintf('DOADIAG %s tgt%d: 真(az%+6.1f, el%+5.1f) -> 估(az%+7.2f, el%+6.2f)  d(az%+6.2f, el%+5.2f)\n', ...
+            S.scenes(batchState.idx).name, g, targets(g).azi, targets(g).ele, ...
+            pt.azimuth, pt.elevation, pt.azimuth - targets(g).azi, pt.elevation - targets(g).ele);
+    end
     S.nOk = S.nOk + 1;
 else
     S.nFail = S.nFail + 1;
@@ -76,7 +87,8 @@ for g = 1:numel(targets)
     idx = find(abs([tgtOut.rangIdx] - (targets(g).gate_R+1)) <= 2 & ...
                abs([tgtOut.dopplerIdx] - (round(dopC)+1)) <= 3 & ...
                abs([tgtOut.azimuth] - targets(g).azi) <= 3 & ...
-               ismember([tgtOut.peak_type], [3 4]));
+               ismember([tgtOut.peak_type], [3 4]) & ...
+               [tgtOut.nonCohSNR] > 0);                % 噪声点出局(与批验证口径一致; 否则最近方位规则会被 az 恰更近的噪声点偷走匹配, I09 实证)
     if isempty(idx), continue; end
     cand = idx(~claimed(idx));
     if isempty(cand), cand = idx; end
@@ -85,10 +97,19 @@ for g = 1:numel(targets)
         prr = nrr(ismember([tgtOut(nrr).splitTag], 1:4));
         if ~isempty(prr), nrr = prr; end
     end
+    if ~isempty(nrr)                                % 强度过滤: 剔除比候选最强者弱 6dB 的病态副本
+        rvW = [tgtOut(nrr).rcsDb];                  % (I09 实证: 同目标 straddle 副本 rcs 可差 21dB)
+        nrrW = nrr(rvW >= max(rvW) - 6);
+        if ~isempty(nrrW), nrr = nrrW; end
+    end
     if ~isempty(nrr)
         dAz = abs([tgtOut(nrr).azimuth] - targets(g).azi);
         rv  = [tgtOut(nrr).rcsDb];
-        [~, im] = min(dAz(:).' - 1e-6*rv(:).');
+        if gp(g)
+            [~, im] = min(dAz(:).' - 1e-6*rv(:).'); % 配对成员: 最近方位(角色点已由 prr 优先)
+        else
+            [~, im] = max(rv(:).' - 1e-3*dAz(:).'); % 独立目标: 最强副本(straddle 副本 rcs 可
+        end                                          % 发散 21dB, 近距规则会被弱副本偷走)
         t = nrr(im);
     else
         [~, im] = min(abs([tgtOut(cand).azimuth] - targets(g).azi));

@@ -1,4 +1,4 @@
-function [tgtOut, detCfg] = doaEstimate_pipe(detCfg, tgtOut, AntCaliData, rowLut, lambda, dims, drawFigs)
+function [tgtOut, detCfg] = doaEstimate_pipe(detCfg, tgtOut, AntCaliData, rowLut, lambda, dims, drawFigs, azDecouple)
 %DOAESTIMATE_PIPE 方位DBF + 子阵俯仰DBF测角, 结果写回目标列表
 %   (移植自 参考\rsp_pipeline_ReWrite\pipeline\doaEstimate_pipe.m, 变量名与参考一致;
 %    两处适配: AntCaliData 由主函数 genAntCaliData 生成后传入(不再 load mat);
@@ -13,6 +13,7 @@ function [tgtOut, detCfg] = doaEstimate_pipe(detCfg, tgtOut, AntCaliData, rowLut
 %   drawFigs: false = 只测角不画(校准遍只取角反方位, 主流程两遍测量用)
 %   输出: tgtOut 中补充 azimuth/elevation/doaMag/azimuthList/sideLobe
     if nargin < 7 || isempty(drawFigs), drawFigs = true; end   % 默认画图
+    if nargin < 8, azDecouple = true; end            % 方位-俯仰几何解耦合(2026-11-07, 默认开)
     aziStartIdx = 1;                              % 方位导向矢量起始索引(对应网格起点 -75°)
     subArrTotal = size(rowLut, 1);                % 子阵总数(读数据: 我们 = 9 行, 参考 = 12 行)
     chanTotal = dims.chanTotal;
@@ -86,8 +87,21 @@ function [tgtOut, detCfg] = doaEstimate_pipe(detCfg, tgtOut, AntCaliData, rowLut
     % ---------- 结果写回目标列表 ----------
     for tgtIdx = 1 : size(tgtOut, 1)
         % 方位/俯仰角 = 网格角度 + 亚格偏移(一阶精化)
-        tgtOut(tgtIdx).azimuth = aziGrid(doaRes.item(tgtIdx).aziPos(1)) + doaRes.item(tgtIdx).aziSubOff(1);
-        tgtOut(tgtIdx).elevation = eleGrid(doaRes.item(tgtIdx).elePos(1)) + doaRes.item(tgtIdx).eleSubOff(1);
+        azRaw = aziGrid(doaRes.item(tgtIdx).aziPos(1)) + doaRes.item(tgtIdx).aziSubOff(1);
+        elEst = eleGrid(doaRes.item(tgtIdx).elePos(1)) + doaRes.item(tgtIdx).eleSubOff(1);
+        % ---- 方位-俯仰几何解耦合(遗留①, 2026-11-07): 方位表按 el=0 切面标定 sin(az) ----
+        % 网格, 目标俯仰≠0 时行相位梯度实为 sin(az)·cos(el) → 方位估计被几何压缩偏向凝视
+        % (偏差场实测: (50°,15°) −2.3°, (70°,10°) −2.8°, el=0 时 ≈0; 与 asin(sin·cos) 映射
+        % 预测逐点吻合 ±0.2°)。由 el₁ 反解真方位 az = asin(sin az₁ / cos el₁);
+        % 俯仰由 z 梯度 sin(el) 直接测得与方位无关, 不修正(偏差场实测 |d_el|≤1°)。
+        if azDecouple
+            sAz = sind(azRaw) / max(cosd(elEst), 0.5);      % cos 夹 0.5(=60°) 防极端俯仰发散
+            tgtOut(tgtIdx).azimuth = asind(max(min(sAz, 1), -1));
+        else
+            tgtOut(tgtIdx).azimuth = azRaw;
+        end
+        tgtOut(tgtIdx).azimuthDoaRaw = azRaw;               % 解耦前一维估计(诊断/A-B)
+        tgtOut(tgtIdx).elevation = elEst;
 
         tgtOut(tgtIdx).doaMag = doaRes.item(tgtIdx).aziPow(1);              % 主方位峰功率
         tgtOut(tgtIdx).azimuthList = aziGrid(doaRes.item(tgtIdx).aziPos).'; % 前4个候选方位列表
