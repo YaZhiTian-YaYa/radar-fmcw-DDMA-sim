@@ -17,6 +17,7 @@ if isfield(S.scenes(ii), 'cfarScale'), cfarFarScale = S.scenes(ii).cfarScale; el
 if isfield(S.scenes(ii), 'mc'), mcPairWOverride = logical(S.scenes(ii).mc); else, mcPairWOverride = false; end
 if isfield(S.scenes(ii), 'azDec'), azDecoupOverride = logical(S.scenes(ii).azDec); else, azDecoupOverride = true; end
 if isfield(S.scenes(ii), 'win'), winTypeOverride = S.scenes(ii).win; else, winTypeOverride = []; end
+if isfield(S.scenes(ii), 'rob'), robExpOverride = logical(S.scenes(ii).rob); else, robExpOverride = false; end
 targetsOverride = S.scenes(ii).tg;  seedOverride = S.scenes(ii).seed;
 fprintf('\n########## RERUN %d/%d [%s] seed %d ##########\n', ...
     ii, numel(S.scenes), S.scenes(ii).name, S.scenes(ii).seed);
@@ -49,6 +50,9 @@ if batchState.okRun && isfield(tgtOut, 'dmlImprDb')
         fprintf('DMLALT %s #%d: alt ang[%+.2f,%+.2f] sep%.2f W[%6.2f,%6.2f] imprS%.2f\n', ...
             S.scenes(batchState.idx).name, t, pt.dmlAltAng(1), pt.dmlAltAng(2), ...
             abs(pt.dmlAltAng(1)-pt.dmlAltAng(2)), pt.dmlAltWDb(1), pt.dmlAltWDb(2), pt.dmlAltImprS);
+        fprintf('DMLROB %s #%d: rob ang[%+.2f,%+.2f] imprS%.2f | alt[%+.2f,%+.2f] imprS%.2f\n', ...
+            S.scenes(batchState.idx).name, t, pt.dmlRobAng(1), pt.dmlRobAng(2), pt.dmlRobImprS, ...
+            pt.dmlRobAltAng(1), pt.dmlRobAltAng(2), pt.dmlRobAltImprS);
     end
 end
 if batchState.okRun

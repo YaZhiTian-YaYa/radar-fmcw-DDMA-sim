@@ -37,7 +37,7 @@
 %  ========================================================================
 clc; close all;
 % 钩子变量(批量案例 runCases*.m / 门限标定 thrSweep_ompdml.m 注入, 平时不存在)
-clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride cfarFarScale mcPairWOverride azDecoupOverride winTypeOverride;
+clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride cfarFarScale mcPairWOverride azDecoupOverride winTypeOverride robExpOverride;
 if exist('seedOverride', 'var') && ~isempty(seedOverride), rng(seedOverride); else, rng(4); end
          % 固定随机种子(照 96 修法): 种子只决定单实现统计起伏, 不改物理 —— 泄漏
          % 路径相位/闪烁噪声/PN 实现/量化误差等每次运行完全一致, 结果可复现、
@@ -173,8 +173,7 @@ targets(1) = struct('gate_R', 5, 'gate_D', 0, 'azi', 0, 'ele', 0, 'rcsDb', -5, .
                     'rcsPhDeg', 0, 'vTan', 0, 'isCorner', 1);
 T = [ ...
 % ---- 目标表(每行一个目标; rcsPh 列 = 初相 deg, 默认 0) ----
- 200/dims.DeltaR   0  0   0   10   0  0  0;...
- 200/dims.DeltaR   0  10   0   5   20  0  0];   % 300m 目标
+ 300/dims.DeltaR   0  0   0   10   0  0  0];   % 300m 目标
 for k = 1:size(T, 1)
     vRadK = T(k,2)*dims.Vres;                          % 法向速度 (m/s)
     if T(k,7) == 0                                     % dir=0: Y 向行驶
@@ -451,8 +450,10 @@ seedD    = round(dopC) + 1;                      % 多普勒 bin (1 起, 含耦�
 % mcPairWOverride: 批跑钩子(仿 cfarFarScale) —— true 时 DML 配对点生产权重切多 cell 合成版
 % (遗留②: same-RD 对邻 cell 复增益相同, 主成分合成后幅度分裂方差 ÷Keff; 单 cell 值备份在 dmlW1DbSc)
 if ~exist('mcPairWOverride', 'var') || isempty(mcPairWOverride), mcPairWOverride = false; end
+% robExpOverride: 远旁瓣残差自投影实验开关(诊断, 默认关; h 帽只用点自身数据, 生产合法)
+if ~exist('robExpOverride', 'var') || isempty(robExpOverride), robExpOverride = false; end
 [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, ...
-                                          thrDmlDb, seedR, seedD, true, accumCfg, mcPairWOverride);
+                                          thrDmlDb, seedR, seedD, true, accumCfg, mcPairWOverride, robExpOverride);
 fprintf('DML 角度超分辨 : 判定出第二目标 %d 个 (门限 %g dB); 门限跳过 %d 点; 实做 DML %d 点 (耗时 %.1f s)\n', ...
         dmlCfg.nDML2nd, thrDmlDb, dmlCfg.nGate, dmlCfg.nDone, toc(tDml));
 

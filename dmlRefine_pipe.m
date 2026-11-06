@@ -1,4 +1,4 @@
-function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, thrDmlDb, seedR, seedD, drawFigs, accumCfg, mcOn)
+function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, thrDmlDb, seedR, seedD, drawFigs, accumCfg, mcOn, robExp)
 %DMLREFINE_PIPE 对全部点云(不含 OMP 第二目标)逐点做 DML 角度超分辨(最多两目标)
 %   [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, thrDmlDb, seedR, seedD)
 %   输入:
@@ -75,6 +75,7 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     if nargin < 9 || isempty(drawFigs), drawFigs = true; end   % false = 批量扫描不画图
     if nargin < 10, accumCfg = []; end                          % 遗留②多 cell 数据源
     if nargin < 11, mcOn = false; end                           % 生产权重切换到多 cell 版
+    if nargin < 12, robExp = false; end                         % 远旁瓣自投影实验(诊断, 不进生产)
     haveSeed = ~isempty(seedR) && ~isempty(seedD);
     haveMc   = ~isempty(accumCfg) && isfield(accumCfg, 'chanSnapshot');
 
@@ -93,6 +94,10 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     tgtOut(1).dmlAltAng = [NaN NaN];                              % 可行分离备选解角度(sep/κ 达标中 J 最优)
     tgtOut(1).dmlAltWDb = [NaN NaN];                              % 备选解权重(dB)
     tgtOut(1).dmlAltImprS = NaN;                                  % 备选解亚bin基线改善(dB)
+    tgtOut(1).dmlRobAng = [NaN NaN];                              % 远旁瓣自投影实验: robust 解角度
+    tgtOut(1).dmlRobImprS = NaN;                                  % robust 解亚bin基线改善(dB)
+    tgtOut(1).dmlRobAltAng = [NaN NaN];                           % robust 可行备选角度
+    tgtOut(1).dmlRobAltImprS = NaN;                               % robust 可行备选净改善
     tgtOut(1).dmlW1DbMc = NaN;  tgtOut(1).dmlW2DbMc = NaN;        % 多 cell 合成权重(dB, 遗留②)
     tgtOut(1).dmlW1DbSc = NaN;  tgtOut(1).dmlW2DbSc = NaN;        % 单 cell 权重备份(mcOn 时)
     tgtOut(1).dmlKeff   = NaN;                                    % 多 cell 等效快照数 Σ|h|²/|h主|²
@@ -109,6 +114,8 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     [tgtOut.dmlW1DbMc] = deal(NaN);
     [tgtOut.dmlAltAng] = deal([NaN NaN]);  [tgtOut.dmlAltWDb] = deal([NaN NaN]);
     [tgtOut.dmlAltImprS] = deal(NaN);
+    [tgtOut.dmlRobAng] = deal([NaN NaN]);  [tgtOut.dmlRobImprS] = deal(NaN);
+    [tgtOut.dmlRobAltAng] = deal([NaN NaN]);  [tgtOut.dmlRobAltImprS] = deal(NaN);
     [tgtOut.dmlW2DbMc] = deal(NaN); [tgtOut.dmlW1DbSc] = deal(NaN);
     [tgtOut.dmlW2DbSc] = deal(NaN); [tgtOut.dmlKeff]   = deal(NaN);
 
@@ -164,47 +171,14 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         if isempty(pkI), pkI = p1; end                         % 兜底: 无合格峰则用强目标自身
         nCand = numel(pkI);                              % 实际可用峰数(可能少于 nStart)
 
-        % ---- 多起点交替坐标细分(每起点: 两角度联合交替 ±1° 内 dmlStepDeg ×nSweep 轮) ----
-        altJ = inf;  altTh1 = NaN;  altTh2 = NaN;  altW = [NaN; NaN];  % 可行分离备选解
+        % ---- 多起点交替坐标细分: 逻辑抽至 dmlSearch2(2026-11-07 重构, 生产行为不变; 鲁棒实验共用) ----
         % 【2026-11-06 反塌缩约束实验结论: 已回退】强制 |th1−th2|≥0.7° 的投影搜索会让第二原子
         % 被迫正交(κ_G≈1.2), 转而吸收强目标旁瓣的导向模型误差(实测单目标假改善 3.5~4.9dB,
         % 骗过 3dB 门限, C1/C2 对照 2~3 个假通过); 无约束搜索下第二原子自然滑向塌缩(改善<3dB,
         % 由判定门 sepMinDml/κ_G 拒绝)。真强弱对的差分贡献低于模型误差地板, 搜索层无解——
         % 根治在导向模型精度(标定残差进估计)与多 cell, 见报告 A.3⑤。
-        bestJ = inf;  bTh1 = [];  bTh2 = [];  bW = [];  bSt = 0;
-        for st = 1:nCand
-            th1 = thS;  th2 = aziGrid(pkI(st));          % 起点: 强目标 + 第 st 个候选峰
-            for sw = 1:nSweep                            % 交替坐标细分 ×nSweep 轮
-                f1  = th1 + (-1 : dmlStepDeg : 1);
-                Jf1 = zeros(size(f1));
-                for j1 = 1:numel(f1)
-                    A2  = [fitFun(f1(j1)), fitFun(th2)];
-                    aS  = inv2x2(A2' * A2) * (A2' * x);
-                    Jf1(j1) = C0 - real(x' * A2 * aS);
-                end
-                [~, j1m] = min(Jf1);  th1 = f1(j1m);
-                f2  = th2 + (-1 : dmlStepDeg : 1);
-                Jf2 = zeros(size(f2));
-                for j2 = 1:numel(f2)
-                    A2  = [fitFun(th1), fitFun(f2(j2))];
-                    aS  = inv2x2(A2' * A2) * (A2' * x);
-                    Jf2(j2) = C0 - real(x' * A2 * aS);
-                end
-                [~, j2m] = min(Jf2);  th2 = f2(j2m);
-            end
-            A2f = [fitFun(th1), fitFun(th2)];
-            aS  = inv2x2(A2f' * A2f) * (A2f' * x);
-            Jf  = C0 - real(x' * A2f * aS);
-            if Jf < bestJ
-                bestJ = Jf;  bTh1 = th1;  bTh2 = th2;  bW = aS;  bSt = st;
-            end
-            % 可行分离备选解跟踪(2026-11-07): 满足 sep≥sepMinDml 且 κ_G≤kapMaxDml 的起点解中
-            % 记 J 最小者 —— 判别实验: 真强弱对的真配置是否以高 imprS 存在、仅被 J 准则淘汰
-            GkS = A2f' * A2f;  svS = svd(GkS);
-            if abs(th1 - th2) > sepMinDml && svS(1)/max(svS(2), eps) <= kapMaxDml && Jf < altJ
-                altJ = Jf;  altTh1 = th1;  altTh2 = th2;  altW = aS;
-            end
-        end
+        [bestJ, bTh1, bTh2, bW, bSt, altJ, altTh1, altTh2, altW] = ...
+            dmlSearch2(x, fitFun, thS, aziGrid(pkI), dmlStepDeg, nSweep, C0, sepMinDml, kapMaxDml, aziGrid(1), aziGrid(end));
 
         % ---- 角度升序整理(权重与升序角度对齐) ----
         ang1 = min(bTh1, bTh2);  ang2 = max(bTh1, bTh2);
@@ -306,6 +280,42 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
                     tgtOut(t).dmlW2Db = tgtOut(t).dmlW2DbMc;
                     tgtOut(t).dmlW1   = Wmc(1);  tgtOut(t).dmlW2 = Wmc(2);
                 end
+            end
+        end
+
+        % ---- 远旁瓣残差自投影实验(2026-11-07, robExp=true 时计算, 不进生产链) ----
+        % 生产口径自查: ĥ 由【当前点自身残差】在线估计, 只用点数据+既有导向表+设计常数,
+        % 无真值/无外部残差表 —— 与 cCal/thrDmlDb 同级的生产合法构造。
+        % 原理: 导向模型误差(实测 −10.7dB 角结构)集中在 |θ−θ₁|>5° 远旁瓣, 而真第二目标的差分
+        % 在主瓣(≤1.2°) —— 用残差远旁瓣峰重构干扰子空间 Ĥ 并投影后重跑搜索: 第二原子吃不到
+        % 模型误差(假改善消失), 真差分与 Ĥ 正交(应保留)。
+        if robExp
+            a1r  = fitFun(ang1s);
+            al1r = (a1r' * x) / real(a1r' * a1r);
+            r1   = x - a1r * al1r;
+            cRf  = A_dml' * r1;
+            cF   = cRf;  cF(abs(aziGrid - ang1s) <= 5) = 0;     % 只留远旁瓣(主瓣保护 5°)
+            [~, fk] = maxk(abs(cF), 3);
+            Hh = [];
+            for q = 1:numel(fk)
+                aF = fitFun(aziGrid(fk(q)));
+                if ~isempty(Hh), aF = aF - Hh * (Hh' * aF); end % Gram-Schmidt 正交化
+                nF = norm(aF);
+                if nF > 1e-3, Hh = [Hh, aF / nF]; end %#ok<AGROW>
+            end
+            if ~isempty(Hh)
+                Pr   = eye(numel(x)) - Hh * Hh';
+                xP   = Pr * x;
+                fitP = @(th) Pr * fitFun(th);                    % 原子同步投影(投影空间一致 LS)
+                C0p  = real(xP' * xP);
+                a1p  = fitP(ang1s);
+                J1p  = C0p - abs(a1p' * xP)^2 / real(a1p' * a1p);
+                [rJ, rT1, rT2, ~, ~, rAJ, rAT1, rAT2] = ...
+                    dmlSearch2(xP, fitP, ang1s, aziGrid(pkI), dmlStepDeg, nSweep, C0p, sepMinDml, kapMaxDml, aziGrid(1), aziGrid(end));
+                tgtOut(t).dmlRobAng      = [min(rT1, rT2), max(rT1, rT2)];
+                tgtOut(t).dmlRobImprS    = 10 * log10(max(J1p, eps) / max(rJ, eps));
+                tgtOut(t).dmlRobAltAng   = [min(rAT1, rAT2), max(rAT1, rAT2)];
+                tgtOut(t).dmlRobAltImprS = 10 * log10(max(J1p, eps) / max(rAJ, eps));
             end
         end
 
@@ -483,4 +493,41 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
 
     dmlCfg = struct('figSeed', figSeed, 'figCloud', figCloud, 'nDML2nd', nDML2nd, ...
                     'nGate', nGate, 'nDone', nDone, 'seedFound', seedFound);
+end
+
+function [bestJ, bTh1, bTh2, bW, bSt, altJ, altTh1, altTh2, altW] = ...
+        dmlSearch2(x, fitFun, thS, candAngs, dmlStepDeg, nSweep, C0, sepMinDml, kapMaxDml, thLo, thHi)
+%DMLSEARCH2 多起点交替坐标双原子搜索(2026-11-07 从主链抽取, 生产行为逐句不变; 鲁棒实验共用)
+%   返回: 全局最优解(best*) + 可行分离备选解(alt*: sep>sepMinDml 且 Gramκ≤kapMaxDml 中 J 最小)
+altJ = inf;  altTh1 = NaN;  altTh2 = NaN;  altW = [NaN; NaN];
+bestJ = inf;  bTh1 = [];  bTh2 = [];  bW = [];  bSt = 0;
+for st = 1:numel(candAngs)
+    th1 = thS;  th2 = candAngs(st);                   % 起点: 强目标 + 第 st 个候选峰
+    for sw = 1:nSweep
+        f1 = min(max(th1 + (-1:dmlStepDeg:1), thLo), thHi);  Jf1 = zeros(size(f1));
+        for j1 = 1:numel(f1)
+            A2 = [fitFun(f1(j1)), fitFun(th2)];
+            aS = inv2x2(A2'*A2) * (A2'*x);
+            Jf1(j1) = C0 - real(x'*A2*aS);
+        end
+        [~, j1m] = min(Jf1);  th1 = f1(j1m);
+        f2 = min(max(th2 + (-1:dmlStepDeg:1), thLo), thHi);  Jf2 = zeros(size(f2));
+        for j2 = 1:numel(f2)
+            A2 = [fitFun(th1), fitFun(f2(j2))];
+            aS = inv2x2(A2'*A2) * (A2'*x);
+            Jf2(j2) = C0 - real(x'*A2*aS);
+        end
+        [~, j2m] = min(Jf2);  th2 = f2(j2m);
+    end
+    A2f = [fitFun(th1), fitFun(th2)];
+    aS  = inv2x2(A2f'*A2f) * (A2f'*x);
+    Jf  = C0 - real(x'*A2f*aS);
+    if Jf < bestJ
+        bestJ = Jf;  bTh1 = th1;  bTh2 = th2;  bW = aS;  bSt = st;
+    end
+    GkS = A2f'*A2f;  svS = svd(GkS);
+    if abs(th1 - th2) > sepMinDml && svS(1)/max(svS(2), eps) <= kapMaxDml && Jf < altJ
+        altJ = Jf;  altTh1 = th1;  altTh2 = th2;  altW = aS;
+    end
+end
 end
