@@ -120,35 +120,45 @@ function [tgtOut, detCfg, ompCfg] = ompRefine_pipe(tgtOut, detCfg, AntCaliData, 
 
         % ---- 第二角度导向矢量拟合 + 联合 LS ----
         atom2 = steerFitAt(A_omp, aziGrid, ang2);
-        W2    = pinv([atom1, atom2]) * x;
         % 近共线限增益(同 dmlRefine, κ 封顶 4 的奇异值截断): 幅值膨胀在分裂里, 总功率缩放无效
         A2o = [atom1, atom2];
         W2  = pinv(A2o, max(svd(A2o)) / 4) * x;
 
+        % ---- 角色按估计强度排序(2026-11-07, 用户口径: 第一目标=较强者) ----
+        % 原实现母点(第一)恒为检测点 —— 弱母场景(检测先得弱者, 如 O13)会出现"第二"强于"第一"。
+        % 按 |W| 排: 强者为第一(母点, 方位替换为强原子角), 弱者为第二(追加)。
+        % 强母的正常场景 azStrong=DBF 角, 母点方位不变, 行为零变化。
+        if abs(W2(2)) > abs(W2(1))
+            azStrong = ang2;   azWeak = azi1;    Wp = W2([2; 1]);
+        else
+            azStrong = azi1;   azWeak = ang2;    Wp = W2;
+        end
+
         % ---- 写回逐点结果 ----
         tgtOut(t).ompHas2nd = has2;
-        tgtOut(t).ompAng2   = ang2;
-        tgtOut(t).ompW1Db   = 20*log10(abs(W2(1)) + eps);  % 母点也用联合第一分量(单原子 a1 含邻目标泄漏, 同距同速对不可用)
-        tgtOut(t).ompW2Db   = 20*log10(abs(W2(2)) + eps);
+        tgtOut(t).ompAng2   = azWeak;
+        tgtOut(t).ompW1Db   = 20*log10(abs(Wp(1)) + eps);  % 第一=较强(联合分量; 单原子 a1 含邻目标泄漏, 不可用)
+        tgtOut(t).ompW2Db   = 20*log10(abs(Wp(2)) + eps);
 
         % ---- 判定有第二目标 → 输出门限(窄)复核 → 通过才追加点云列表 ----
         % 第二目标自身位置(角度用 OMP 第二角度, 距离/俯仰继承母点)落在
         % ±aziLimDeg、|x|≤xLimM 之外 → 删除(范围外不关注, 减少测错杂点)
         keep2 = false;
         if has2
-            x2    = rngM * cosd(eleM) * sind(ang2);          % OMP 第二目标 x 位置 (m)
-            keep2 = abs(ang2) <= aziLimDeg && abs(x2) <= xLimM;
+            x2    = rngM * cosd(eleM) * sind(azWeak);        % OMP 第二目标 x 位置 (m)
+            keep2 = abs(azWeak) <= aziLimDeg && abs(x2) <= xLimM;
             if keep2
                 n2nd = n2nd + 1;
+                tgtOut(t).azimuth = azStrong;                 % 母点方位=强原子角(与 DML 同款替换)
                 newT          = tgtOut(t);                   % 继承同距同速/俯仰等字段
                 newT.ID       = max([tgtOut.ID]) + 1;
-                newT.azimuth  = ang2;                        % 第二目标方位
+                newT.azimuth  = azWeak;                       % 第二目标(较弱)方位
                 newT.isOMP2nd = 1;
                 newT.splitTag = 2;                            % OMP 点2
-                pairSep = abs(ang2 - tgtOut(t).azimuth);      % 对角间隔(双点同存, rcsConf 用)
+                pairSep = abs(azStrong - azWeak);             % 对角间隔(双点同存, rcsConf 用)
                 newT.ompSepDeg = pairSep;
                 tgtOut(end+1) = newT;
-                tgtOut(t).splitTag = 1;                       % OMP 点1(母点)
+                tgtOut(t).splitTag = 1;                       % OMP 点1(母点=较强)
                 tgtOut(t).ompSepDeg = pairSep;
             else
                 n2ndDrop = n2ndDrop + 1;                     % 通过判定但超出输出范围 → 删

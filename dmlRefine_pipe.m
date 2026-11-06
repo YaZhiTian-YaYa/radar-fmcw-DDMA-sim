@@ -191,6 +191,16 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         A2s  = [fitFun(ang1), fitFun(ang2)];
         ampW = pinv(A2s, max(svd(A2s)) / 4) * x;
 
+        % ---- 角色按估计强度排序(2026-11-07, 用户口径: 第一目标=较强者) ----
+        % 原实现 ang1=min(角) 恒为母点/第一 —— 等强对的 κ 分裂噪声会使"第二"读得比"第一"高,
+        % 与五分类语义(第一=较强)矛盾。这里按 |ampW| 排: 强者为第一(母点), 弱者为第二(追加)。
+        % 列交换后 Gram 的 svd 不变(κ/门不受影响), 其余字段随 ampW/Wf/Cwk/A2s 同步交换。
+        if abs(ampW(2)) > abs(ampW(1))
+            tmp = ang1;  ang1 = ang2;  ang2 = tmp;
+            ampW = ampW([2; 1]);
+            A2s  = A2s(:, [2 1]);
+        end
+
         % ---- 分离质量度量(2026-11-06, 先于判定门): Gram 条件数 κ_G + 未封顶 LS 权重 + 权重噪声σ ----
         % κ_G=κ(原子)², 下方 pinv 的 κ=4 封顶 ⇔ κ_G=16; σn²=Jf/(N-2) → cov(W)=σn²·inv(A'A)
         Gk   = A2s' * A2s;   svk = svd(Gk);
