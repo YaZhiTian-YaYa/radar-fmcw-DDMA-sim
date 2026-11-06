@@ -1,4 +1,4 @@
-function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, thrDmlDb, seedR, seedD, drawFigs)
+function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, thrDmlDb, seedR, seedD, drawFigs, accumCfg, mcOn)
 %DMLREFINE_PIPE 对全部点云(不含 OMP 第二目标)逐点做 DML 角度超分辨(最多两目标)
 %   [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, thrDmlDb, seedR, seedD)
 %   输入:
@@ -10,6 +10,8 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
 %     thrDmlDb    【第二目标判定门限】残差改善超过此值(dB)才输出第二目标
 %     seedR/seedD 指定做 DML 过程图的目标的 距离bin/多普勒bin(1 起, 容差 ±1 bin;
 %                 注意步进频耦合会使实际 D 序号偏离放置值, 按 RD 图实际位置填)
+%     accumCfg    (可选, 遗留②多 cell 用) chanSnapshot/ddmOrdMap 来源; 空则跳过多 cell
+%     mcOn        (可选) true=配对点生产权重改用多 cell 合成版(单 cell 值备份到 dmlW1DbSc)
 %   处理(逐点依次, 算法逻辑与已验证的 dmlAngle 完全一致):
 %     0) 跳过 OMP 第二目标; 门限检查(|DBF方位|≤90° 且 |x|≤300 m, 旋钮见下)超出跳过;
 %     1) K=1 粗搜: 1° 表上最佳单角度(强目标);
@@ -65,7 +67,10 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     if nargin < 8, seedD = []; end
     if nargin < 7, seedR = []; end
     if nargin < 9 || isempty(drawFigs), drawFigs = true; end   % false = 批量扫描不画图
+    if nargin < 10, accumCfg = []; end                          % 遗留②多 cell 数据源
+    if nargin < 11, mcOn = false; end                           % 生产权重切换到多 cell 版
     haveSeed = ~isempty(seedR) && ~isempty(seedD);
+    haveMc   = ~isempty(accumCfg) && isfield(accumCfg, 'chanSnapshot');
 
     % 统一新增标记字段(先建字段, 再用 deal 对【全部元素】填默认值; 必须在循环前 ——
     % 循环内要读 isOMP2nd。注意: 只写 tgtOut(1).字段 = 值时, 其余元素该字段是空 [],
@@ -78,6 +83,9 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     tgtOut(1).dmlSigW1 = NaN;  tgtOut(1).dmlSigW2 = NaN;         % LS 权重噪声σ(分离质量)
     tgtOut(1).dmlImprDb = NaN;                                    % 单→双原子残差改善(dB)
     tgtOut(1).dmlResPm  = NaN;                                    % 拟合后残差匹配峰/中位比(dB, 真假分离判别)
+    tgtOut(1).dmlW1DbMc = NaN;  tgtOut(1).dmlW2DbMc = NaN;        % 多 cell 合成权重(dB, 遗留②)
+    tgtOut(1).dmlW1DbSc = NaN;  tgtOut(1).dmlW2DbSc = NaN;        % 单 cell 权重备份(mcOn 时)
+    tgtOut(1).dmlKeff   = NaN;                                    % 多 cell 等效快照数 Σ|h|²/|h主|²
     [tgtOut.isDML2nd] = deal(0);
     [tgtOut.dmlGate]  = deal(1);
     [tgtOut.dmlPass]  = deal(0);
@@ -87,7 +95,9 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     [tgtOut.dmlKappa] = deal(NaN);  [tgtOut.dmlW1DbU] = deal(NaN);
     [tgtOut.dmlW2DbU] = deal(NaN);  [tgtOut.dmlSigW1] = deal(NaN);
     [tgtOut.dmlSigW2] = deal(NaN);  [tgtOut.dmlImprDb] = deal(NaN);
-    [tgtOut.dmlResPm] = deal(NaN);
+    [tgtOut.dmlResPm] = deal(NaN);  [tgtOut.dmlW1DbMc] = deal(NaN);
+    [tgtOut.dmlW2DbMc] = deal(NaN); [tgtOut.dmlW1DbSc] = deal(NaN);
+    [tgtOut.dmlW2DbSc] = deal(NaN); [tgtOut.dmlKeff]   = deal(NaN);
 
     % ---------- 逐点 DML(跳过 OMP 第二目标; 门限内的点才做) ----------
     for t = 1:nTgtAll
@@ -212,6 +222,51 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         tgtOut(t).dmlPass = dmlPass;
         if dmlPass && tgtOut(t).splitTag == 0, tgtOut(t).splitTag = 3; end   % DML 点1(母点, 未被 OMP 标过)
         tgtOut(t).dmlSepDeg = abs(ang1 - ang2);            % DML 对角间隔(deg, 母点存, 追加点继承)
+
+        % ---- 多 cell 相参合成(遗留②, 2026-11-07): same-RD 对在邻 cell 复增益完全相同 ----
+        % 两目标共享 cell 复增益 w_c → 邻域快照与主快照平行(秩1); 主成分方向 u 的噪声
+        % 降 √Keff, κ 受限的双原子幅度分裂方差 ÷Keff。幅度按主 cell 投影归一, 与单 cell
+        % 口径一致(不改变角度/判定, 只提权重精度)。邻域 = 多普勒 sb±1(须同 DDM 阶, 否则
+        % 该 cell 抓的是别阶目标)+ 距离 r±1; 异常 cell(PCA 残差>50%)剔除后重拟一遍。
+        if haveMc
+            rIdx0 = double(tgtOut(t).rangIdx);
+            sb0   = mod(double(tgtOut(t).dopplerIdx) - 1, dims.subBins) + 1;
+            ord0  = double(accumCfg.ddmOrdMap(rIdx0, sb0));
+            candM = [0 0; -1 0; 1 0; 0 -1; 0 1];          % 主 + 距离±1 + 多普勒±1
+            Xc = [];  idxM = 0;
+            for qM = 1:size(candM, 1)
+                rM = rIdx0 + candM(qM, 1);  sM = sb0 + candM(qM, 2);
+                if rM < 1 || rM > dims.rngUse || sM < 1 || sM > dims.subBins, continue; end
+                if double(accumCfg.ddmOrdMap(rM, sM)) ~= ord0, continue; end
+                Xc = [Xc, double(accumCfg.chanSnapshot(chanAzi, rM, sM))]; %#ok<AGROW>
+                if candM(qM, 1) == 0 && candM(qM, 2) == 0, idxM = size(Xc, 2); end
+            end
+            if size(Xc, 2) >= 2 && idxM > 0
+                keep = true(1, size(Xc, 2));
+                for itM = 1:2                              % 两轮: 第二轮用剔除后重拟
+                    [Uc, ~, ~] = svd(Xc(:, keep), 0);
+                    uM = Uc(:, 1);
+                    hM = uM' * Xc;                         % 全部 cell 投影(含剔除的, 供 Keff 记录)
+                    for qM = find(keep)
+                        if qM == idxM, continue; end
+                        resM = norm(Xc(:, qM) - uM * hM(qM)) / (norm(Xc(:, qM)) + eps);
+                        if resM > 0.5, keep(qM) = false; end
+                    end
+                end
+                hMain = hM(idxM);
+                Wmc   = pinv(A2s, max(svd(A2s)) / 4) * (uM * hMain);
+                tgtOut(t).dmlW1DbMc = 20*log10(abs(Wmc(1)) + eps);
+                tgtOut(t).dmlW2DbMc = 20*log10(abs(Wmc(2)) + eps);
+                tgtOut(t).dmlKeff   = sum(abs(hM(keep)).^2) / (abs(hMain)^2 + eps);
+                if mcOn && dmlPass
+                    tgtOut(t).dmlW1DbSc = tgtOut(t).dmlW1Db;   % 单 cell 值备份(A/B 用)
+                    tgtOut(t).dmlW2DbSc = tgtOut(t).dmlW2Db;
+                    tgtOut(t).dmlW1Db = tgtOut(t).dmlW1DbMc;   % 生产切多 cell 版
+                    tgtOut(t).dmlW2Db = tgtOut(t).dmlW2DbMc;
+                    tgtOut(t).dmlW1   = Wmc(1);  tgtOut(t).dmlW2 = Wmc(2);
+                end
+            end
+        end
 
         % ---- 通过: 第一目标方位替换为 DML 第一角度, 追加第二目标进点云 ----
         if dmlPass

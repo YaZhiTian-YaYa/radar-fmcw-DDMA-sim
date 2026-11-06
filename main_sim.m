@@ -37,7 +37,7 @@
 %  ========================================================================
 clc; close all;
 % 钩子变量(批量案例 runCases*.m / 门限标定 thrSweep_ompdml.m 注入, 平时不存在)
-clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride cfarFarScale;
+clearvars -except targetsOverride saveDBFStage saveFigDir skipFigs batchState seedOverride cfarFarScale mcPairWOverride;
 if exist('seedOverride', 'var') && ~isempty(seedOverride), rng(seedOverride); else, rng(4); end
          % 固定随机种子(照 96 修法): 种子只决定单实现统计起伏, 不改物理 —— 泄漏
          % 路径相位/闪烁噪声/PN 实现/量化误差等每次运行完全一致, 结果可复现、
@@ -444,7 +444,11 @@ seedTgtD = min(5, numel(targets));               % DML 过程图目标(目标表
 dopC     = mod(targets(seedTgtD).gate_D + prm.stepDir*prm.cr*prm.B/(nChirps-1) * (2*targets(seedTgtD).gate_R*c0/(2*prm.B))/c0 * nChirps, nChirps);
 seedR    = targets(seedTgtD).gate_R + 1;         % 距离 bin (1 起)
 seedD    = round(dopC) + 1;                      % 多普勒 bin (1 起, 含耦合)
-[tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, thrDmlDb, seedR, seedD);
+% mcPairWOverride: 批跑钩子(仿 cfarFarScale) —— true 时 DML 配对点生产权重切多 cell 合成版
+% (遗留②: same-RD 对邻 cell 复增益相同, 主成分合成后幅度分裂方差 ÷Keff; 单 cell 值备份在 dmlW1DbSc)
+if ~exist('mcPairWOverride', 'var') || isempty(mcPairWOverride), mcPairWOverride = false; end
+[tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, rowLut, dims, ...
+                                          thrDmlDb, seedR, seedD, true, accumCfg, mcPairWOverride);
 fprintf('DML 角度超分辨 : 判定出第二目标 %d 个 (门限 %g dB); 门限跳过 %d 点; 实做 DML %d 点 (耗时 %.1f s)\n', ...
         dmlCfg.nDML2nd, thrDmlDb, dmlCfg.nGate, dmlCfg.nDone, toc(tDml));
 

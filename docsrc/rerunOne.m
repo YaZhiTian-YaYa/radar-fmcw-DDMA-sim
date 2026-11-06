@@ -13,6 +13,7 @@ if ~exist(saveFigDir, 'dir'), mkdir(saveFigDir); end
 batchState.idx = ii;  batchState.okRun = true;
 batchState.scnSeed = S.scenes(ii).seed;              % clearvars 前备好(run 后 S 已被抹)
 if isfield(S.scenes(ii), 'cfarScale'), cfarFarScale = S.scenes(ii).cfarScale; else, cfarFarScale = []; end
+if isfield(S.scenes(ii), 'mc'), mcPairWOverride = logical(S.scenes(ii).mc); else, mcPairWOverride = false; end
 targetsOverride = S.scenes(ii).tg;  seedOverride = S.scenes(ii).seed;
 fprintf('\n########## RERUN %d/%d [%s] seed %d ##########\n', ...
     ii, numel(S.scenes), S.scenes(ii).name, S.scenes(ii).seed);
@@ -39,9 +40,9 @@ if batchState.okRun && isfield(tgtOut, 'dmlImprDb')
     for t = [pv, np(o2)]
         pt = tgtOut(t);
         fprintf(['DMLDIAG %s #%d: ang[%+.2f,%+.2f] sep%.2f pass%d impr%.2f κG=%.1f resPm%.1f | ' ...
-                 'W[%6.2f,%6.2f] 全[%6.2f,%6.2f]\n'], S.scenes(batchState.idx).name, t, ...
+                 'W[%6.2f,%6.2f] Mc[%6.2f,%6.2f] Keff%.2f\n'], S.scenes(batchState.idx).name, t, ...
             pt.dmlAng1, pt.dmlAng2, pt.dmlSepDeg, pt.dmlPass, pt.dmlImprDb, pt.dmlKappa, ...
-            pt.dmlResPm, pt.dmlW1Db, pt.dmlW2Db, pt.dmlW1DbU, pt.dmlW2DbU);
+            pt.dmlResPm, pt.dmlW1Db, pt.dmlW2Db, pt.dmlW1DbMc, pt.dmlW2DbMc, pt.dmlKeff);
     end
 end
 if batchState.okRun
