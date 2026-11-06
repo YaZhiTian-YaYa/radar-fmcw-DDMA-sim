@@ -16,7 +16,9 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
 %     2) 残差匹配曲线取候选峰(限于 DBF 主峰 ±dmlSpanDeg 内, 破 39° 边缘假峰)
 %        → 各起点做交替坐标细分(±1° 内 dmlStepDeg 步进 ×3 轮, 表格插值原子);
 %     3) 取最终代价最小的起点为解;
-%     4) 判定: 残差改善 imprDb = 10log10(J1/J2) > thrDmlDb 且 0.2° < 间隔 ≤ sepLimDeg(6°, 与 OMP 衔接)
+%     4) 判定: 残差改善 imprDb = 10log10(J1/J2) > thrDmlDb 且 sepMinDml(0.7°) < 间隔 ≤ sepLimDeg(6°,
+%        与 OMP 衔接) 且 Gram 条件数 κ_G ≤ kapMaxDml(16, =原子κ4 与 pinv 封顶同口径)
+%        【2026-11-06 收紧: 原仅 >0.2°, 强弱对角度塌缩(两原子拟到强目标一侧)会虚假分离】
 %        → 通过: 第一目标方位替换为 DML 第一角度, 第二目标追加点云(继承俯仰等);
 %        不通过: 该点保留 DML 之前的 DOA 结果(方位不动, 不追加)。
 %   输出:
@@ -43,6 +45,12 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     % ---------- DML 分工限定(与 OMP 无缝衔接: DML 管 1.5~6°, OMP 管 ≥5°, 5~6° 双保险) ----------
     dmlSpanDeg = 8;                     % [旋钮] DML 搜索半跨度: 第二角度候选限于 DBF 主峰 ±此值内 (deg, 覆盖 6° 分离+裕量)
     sepLimDeg  = 6;                     % [旋钮] 两目标角度间隔上限 (deg): 超出判不通过(曾为 4°, 与 OMP 的 6° 之间留 4~6° 空档, 已改 6° 衔接)
+    sepMinDml  = 0.7;                   % [旋钮] DML 通过的最小角间隔 (deg)【2026-11-06 由 0.2 收紧】:
+                                        %   亚半波束对(3dB宽1.88°/角bin 1.4°)分量幅度解算病态, 且实测
+                                        %   强弱对发生角度塌缩(两原子都拟到强目标一侧, sep 0.35~0.6°
+                                        %   仍给出>3dB假改善, D04/D05 取证) —— 拒绝分离, 输出融合单点
+    kapMaxDml  = 16;                    % [旋钮] Gram 条件数上限(=原子κ=4, 与下方 pinv 封顶同口径):
+                                        %   超此双原子近共线, 权重解算不可信(塌缩对实测 κ_G=34~45)
     dmlStepDeg = 0.05;                  % [旋钮] 交替坐标细分步进 (deg): ±1° 内按此步进搜极小
     nSweep     = 3;                     % [旋钮] 交替坐标细分轮数
     nStart     = 20;                    % [旋钮] 残差匹配先取的峰数(再按 ±dmlSpanDeg 筛选)
@@ -66,12 +74,17 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
     tgtOut(1).dmlAng1  = NaN;  tgtOut(1).dmlAng2 = NaN;
     tgtOut(1).dmlW1Db  = NaN;  tgtOut(1).dmlW2Db = NaN;
     tgtOut(1).dmlW1    = [];   tgtOut(1).dmlW2  = [];            % 线性幅度(RCS 推算用)
+    tgtOut(1).dmlKappa = NaN;  tgtOut(1).dmlW1DbU = NaN;  tgtOut(1).dmlW2DbU = NaN;
+    tgtOut(1).dmlSigW1 = NaN;  tgtOut(1).dmlSigW2 = NaN;         % LS 权重噪声σ(分离质量)
     [tgtOut.isDML2nd] = deal(0);
     [tgtOut.dmlGate]  = deal(1);
     [tgtOut.dmlPass]  = deal(0);
     [tgtOut.dmlAng1]  = deal(NaN);  [tgtOut.dmlAng2] = deal(NaN);
     [tgtOut.dmlW1Db]  = deal(NaN);  [tgtOut.dmlW2Db] = deal(NaN);
     [tgtOut.dmlW1]    = deal([]);   [tgtOut.dmlW2]   = deal([]);
+    [tgtOut.dmlKappa] = deal(NaN);  [tgtOut.dmlW1DbU] = deal(NaN);
+    [tgtOut.dmlW2DbU] = deal(NaN);  [tgtOut.dmlSigW1] = deal(NaN);
+    [tgtOut.dmlSigW2] = deal(NaN);
 
     % ---------- 逐点 DML(跳过 OMP 第二目标; 门限内的点才做) ----------
     for t = 1:nTgtAll
@@ -157,15 +170,29 @@ function [tgtOut, detCfg, dmlCfg] = dmlRefine_pipe(tgtOut, detCfg, AntCaliData, 
         A2s  = [fitFun(ang1), fitFun(ang2)];
         ampW = pinv(A2s, max(svd(A2s)) / 4) * x;
 
-        % ---- 第二目标判定(残差改善 > 门限 且 间隔可分且限内) ----
+        % ---- 分离质量度量(2026-11-06, 先于判定门): Gram 条件数 κ_G + 未封顶 LS 权重 + 权重噪声σ ----
+        % κ_G=κ(原子)², 下方 pinv 的 κ=4 封顶 ⇔ κ_G=16; σn²=Jf/(N-2) → cov(W)=σn²·inv(A'A)
+        Gk   = A2s' * A2s;   svk = svd(Gk);
+        sn2k = max(bestJ, eps) / (numel(x) - 2);
+        Cwk  = sn2k * inv2x2(Gk);
+        Wf   = inv2x2(Gk) * (A2s' * x);
+        kapG = svk(1) / max(svk(2), eps);
+
+        % ---- 第二目标判定(残差改善 + 间隔窗[sepMinDml, sepLimDeg] + 条件数上限) ----
         imprDb = 10 * log10(max(J1, eps) / max(bestJ, eps));
-        dmlPass = (imprDb > thrDmlDb) && (abs(ang1 - ang2) > 0.2) && (abs(ang1 - ang2) <= sepLimDeg);
+        dmlPass = (imprDb > thrDmlDb) && (abs(ang1 - ang2) > sepMinDml) && ...
+                  (abs(ang1 - ang2) <= sepLimDeg) && (kapG <= kapMaxDml);
 
         % ---- 写回逐点结果 ----
         tgtOut(t).dmlAng1 = ang1;  tgtOut(t).dmlAng2 = ang2;
         tgtOut(t).dmlW1Db = 20*log10(abs(ampW(1)) + eps);
         tgtOut(t).dmlW2Db = 20*log10(abs(ampW(2)) + eps);
         tgtOut(t).dmlW1   = ampW(1);  tgtOut(t).dmlW2 = ampW(2);   % 线性幅度(RCS 推算用)
+        tgtOut(t).dmlKappa = kapG;
+        tgtOut(t).dmlW1DbU = 20*log10(abs(Wf(1)) + eps);
+        tgtOut(t).dmlW2DbU = 20*log10(abs(Wf(2)) + eps);
+        tgtOut(t).dmlSigW1 = sqrt(max(real(Cwk(1, 1)), 0));
+        tgtOut(t).dmlSigW2 = sqrt(max(real(Cwk(2, 2)), 0));
         tgtOut(t).dmlPass = dmlPass;
         if dmlPass && tgtOut(t).splitTag == 0, tgtOut(t).splitTag = 3; end   % DML 点1(母点, 未被 OMP 标过)
         tgtOut(t).dmlSepDeg = abs(ang1 - ang2);            % DML 对角间隔(deg, 母点存, 追加点继承)
