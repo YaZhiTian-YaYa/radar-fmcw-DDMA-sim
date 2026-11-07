@@ -195,6 +195,14 @@ enablePhaseQuant = true;  % [开关] 相位量化到 N-bit 可实现值
 phaseBits         = 7;     % [旋钮] 移相器位数（8-bit → 360/256 = 1.40625°/LSB）
 enablePhaseErr = true;  % [开关] 附加逐 chirp 正态随机相位误差
 phaseErrSigma_deg = 1;     % [旋钮] 随机误差标准差 (deg rms，典型 1~5）
+phaseErrStatic   = true;   % [旋钮] 相位误差静态化(硬件一致口径, 用户 2026-11-08 拍板,
+                           %   随 96/97 工程实证修复同款): 移相器每态实现偏差是静态电路
+                           %   属性(逐芯片/温度缓变), 每帧每 TX 抽一次 → 效果 = 阵列相位
+                           %   偏移 + 码谐波处有限谱线(真实机制)。false = 逐 chirp 独立
+                           %   白噪(旧口径, 仅诊断对照): 白噪把码线功率 σφ² 份额平铺整个
+                           %   多普勒行 —— 96 工程实证强目标 +17.6dB 假墙(17 项单关唯一
+                           %   有效项), 本工程 1° 时净贡献 +1.0dB@50dBsm(2026-11-08 二分
+                           %   定案, 静态化后该项归零)。
 
 % ---------- 6. 天线/射频链带内幅度起伏（确定性 AM → R-FFT 展宽） ----------
 enableRipple = true;       % [开关] 带内幅度起伏
@@ -208,8 +216,9 @@ nonlinType   = 'hump';     % [旋钮] 形状: 'hump'单凸 | 'dip'单凹 | 'hump
 % ---------- 8. 相位噪声 + PLL 环路滤波器（两项独立开关；环路滤波只整形 PN） ----------
 enablePhaseNoise = true;   % [开关] 锁相环相位噪声（共锁相环 → 8TX 一致）
 pnProfile        = [1e3 -49.25; 10e3 -65.84; 30e3 -92; 100e3 -108;...
-                    1e6 -125; 10e6 -131; 100e6 -133];  % [旋钮] PN 拟合点 [Hz, dBc/Hz]
-                           %   （近端 = 环路内特性；远端截断行为由本块环路滤波器决定）
+                    1e6 -125; 10e6 -131; 100e6 -133];  % [旋钮] PN 拟合点·参考支路 [Hz, dBc/Hz]
+                           %   （双支路模型 2026-11-08: 本表 = 环路内参考支路 L_ref;
+                           %   环路外由 pnProfileVco 的 VCO 支路接管, 见下）
                            %   【2026-11-07 重标远端】原 100kHz=-70.8 dBc/Hz 使 τ-差分残余
                            %   在多普勒奈奎斯特(13.8kHz)~环路带宽(800kHz)间的分量混叠成
                            %   平地板: 50dBsm@300m 目标行中位 +28dB 墙 + 距离维 ±10bin 台地
@@ -217,15 +226,27 @@ pnProfile        = [1e3 -49.25; 10e3 -65.84; 30e3 -92; 100e3 -108;...
                            %   呈"窗零陷-肩膀"结构(下降再上升)且无平地板 → 实机 13.8k~800kHz
                            %   频段 PN 比原 profile 低 ~30dB。近端(1k/10k)不动 —— 保留既有
                            %   线损/肩膀标定; 远端(30k+)按"混叠地板<热噪"上限重标。
-enableLoopFilter = true;    % [开关] PLL 环路低通整形（仅 enablePhaseNoise=true 时有作用；
-                           %   关闭 = 输出 PN 按拟合点外推、肩部不截断）
-loopBW_Hz        = 800e3;  % [旋钮] 环路带宽 (Hz)：输出 PN 在此偏移处被陡峭截断，
-                           %   所有目标肩部截断在同一偏移（与距离无关）。
-                           %   实测肩膀口径(2026-11-08 用户判读): 底噪两侧近线低、往两侧
-                           %   才抬成肩且起始不远, 肩偏移随本环路带宽移动 —— 即残余 PSD
-                           %   L(f)·4sin²(πfτ): 近线共模对消(4sin²→0, 低), 随偏移按 f²
-                           %   上升, 至 min(1/2τ, 环路带宽) 处成肩, 带外被本滤波器陡截,
-                           %   带外分量多普勒混叠为平地板(profile 远端重标即为此压平)。
+                           %   【校准盲区】本表在默认 800kHz 环路下标定 → 只约束环路内合成
+                           %   结果; VCO 支路在 30k~800k 的真实电平被环路压着不可见, 扫
+                           %   200kHz 环路时会露出 —— 用实测"肩随 loopBW 移动"量标定之。
+pnProfileVco     = [30e3 -100; 100e3 -105; 1e6 -125; 10e6 -131; 100e6 -133];  % [旋钮] VCO 支路
+                           %   L_vco 拟合点 [Hz, dBc/Hz](环路外主导)。1M+ 三点 = VCO 地板
+                           %   (任何环路带宽下都露在外面, 直接可测, 与参考支路远端一致);
+                           %   30k/100k 两点为占位(按 1M 点 −20dB/dec 内推) —— 待芯片开环
+                           %   VCO 曲线或 200kHz 环路实测肩谱标定。这两点决定扫环路带宽时
+                           %   肩移动的幅度(见 loopBW_Hz 注释)。
+enableLoopFilter = true;    % [开关] PLL 环路整形（仅 enablePhaseNoise=true 时有作用；
+                           %   关闭 = 单表旧口径: 只按 pnProfile 外推, 不做双支路合成）
+loopBW_Hz        = 800e3;  % [旋钮] 环路带宽 (Hz) = 参考支路与 VCO 支路的交接点:
+                           %   L_out(f) = |H|²·L_ref + (1−|H|²)·L_vco, |H|²=1/(1+(f/BW)^2n)。
+                           %   【为什么必须双支路(2026-11-08 修)】旧单支路模型把 loopBW 当
+                           %   固定 profile 的"截断点", 扫 200k↔1200k 只动 800k~1.2M 的瘦
+                           %   尾巴(≈−125dBc/Hz, 贡献≈0) → 肩不动, 与实测"肩随环路带宽
+                           %   明显移动"矛盾。硬件真况: 环内跟随参考(低), 环外=VCO 自由
+                           %   (高) —— 窄环(200k)让 VCO 从 200k 就接管(肩近而高), 宽环
+                           %   (1200k)参考支路压到 1.2M(肩远而低) → 肩随交接点移动。
+                           %   实测肩膀口径(用户判读): 近线低(4sin² 共模对消)→随偏移 f²
+                           %   上升→min(1/2τ, 环路交接点)处成肩→带外 VCO 地板混叠为平底。
 loopOrder        = 4;      % [旋钮] 环路滤波器阶数（截断陡度, PSD ~12n dB/oct）
 
 % ---------- 8b. PLL 扫频跟踪误差（快斜坡下环路滞后 ∝ B/Ts → 肩膀随带宽抬高） ----------
@@ -972,14 +993,27 @@ hiEnd = fAxC > pnProfile(end,1);              % 高于最后一点（过采样�
 slpEnd = (pnProfile(end,2)-pnProfile(end-1,2)) / ...
          (log10(pnProfile(end,1))-log10(pnProfile(end-1,1)));   % 末段斜率 dB/dec
 Lfit(hiEnd) = pnProfile(end,2) + slpEnd*(log10(fAxC(hiEnd)) - log10(pnProfile(end,1)));
-Lphi  = 10.^(Lfit/10);                        % L(f) 线性值 (1/Hz)；积分 rms² = 2∫L df
-% PLL 环路滤波器（低通）整形：输出 PN 的 PSD 在环路带宽处被陡峭截断。
-% 环路内（< loopBW）按拟合点；环路外按 |H_loop|² 陡降 —— R-FFT 中肩部在
-% 偏移 = loopBW 处瞬间截断，且所有目标的截断偏移相同（环路特性与目标无关）。
-% enableLoopFilter=false 时不乘 |H_loop|²：输出 PN 按拟合点直接外推、不截断
-%（环路整形只作用于 PN 合成，故仅在 enablePhaseNoise=true 时有实际效果）。
-loopOn = double(enableLoopFilter);                              % 开关（false=0 → 无环路整形）
-Lphi = Lphi ./ (1 + loopOn*(fAxC/loopBW_Hz).^(2*loopOrder));    % 乘 |H_loop(f)|²
+Lphi  = 10.^(Lfit/10);                        % L_ref(f) 线性值 (1/Hz)；积分 rms² = 2∫L df
+% VCO 支路拟合(环路外主导, 2026-11-08 双支路模型): 与参考支路同款插值+外推
+LfitV = interp1(log10(pnProfileVco(:,1)), pnProfileVco(:,2), log10(fAxC), 'linear');
+loEndV = fAxC < pnProfileVco(1,1);
+LfitV(loEndV) = pnProfileVco(1,2) - 20*(log10(pnProfileVco(1,1)) - log10(fAxC(loEndV)));
+hiEndV = fAxC > pnProfileVco(end,1);
+slpEndV = (pnProfileVco(end,2)-pnProfileVco(end-1,2)) / ...
+          (log10(pnProfileVco(end,1))-log10(pnProfileVco(end-1,1)));
+LfitV(hiEndV) = pnProfileVco(end,2) + slpEndV*(log10(fAxC(hiEndV)) - log10(pnProfileVco(end,1)));
+LphiV = 10.^(LfitV/10);                       % L_vco(f) 线性值 (1/Hz)
+% PLL 环路合成(双支路): L_out(f) = |H|²·L_ref + (1−|H|²)·L_vco,
+%   |H|² = 1/(1+(f/loopBW)^(2n)) —— 环路带宽 = 参考支路与 VCO 支路的交接点。
+%   f≪BW: |H|²≈1 → 跟随参考(低); f≫BW: |H|²→0 → VCO 自由支路接管(高, 不再被
+%   错误截断 —— 旧模型除以 (1+(f/BW)^2n) 把环外 VCO 地板也压掉, 非物理)。
+%   扫 loopBW 200k↔1200k = 移动交接点 → 中段(13.8k~1.2M)主导支路切换 →
+%   肩随环路带宽移动(与实测口径一致, 见开关区 loopBW_Hz 注释)。
+% enableLoopFilter=false = 单表旧口径(只按 pnProfile 外推, 诊断对照)。
+if enableLoopFilter
+    H2 = 1 ./ (1 + (fAxC/loopBW_Hz).^(2*loopOrder));           % |H_loop(f)|²
+    Lphi = H2.*Lphi + (1-H2).*LphiV;                           % 双支路合成
+end
 Lphi(1) = 0;                                  % DC 置零（绝对相位无意义）
 A_pn  = sqrt(fs2*M_pn*Lphi);                  % 频域幅度（随机相位法方差 = 2∫L df）
 Xf_pn = A_pn .* exp(1j*2*pi*rand(numel(A_pn),1));
@@ -1142,6 +1176,9 @@ else
     hopErrSeq = zeros(1, nChirps);
 end
 
+% 移相器相位偏差(静态口径, 见开关区 phaseErrStatic 注释): 每帧每 TX 抽一次
+phErrStat = deg2rad(phaseErrSigma_deg) * randn(nTX, 1);
+
 for n = 1:nChirps
     t_m = (n-1)*Tc;                           % 慢时间：本 chirp 起始时刻
     f_m = startFreq + (n-1)*f_step;           % 本 chirp 起始频率（理想值）
@@ -1160,10 +1197,17 @@ for n = 1:nChirps
     s_tx = exp(1j*( 2*pi*( f_m*(t_m + t2c) + 0.5*FreqSlope*t2c.^2 ...
              + nlOn*nonlinPh(t2c) ) + pnOn*pnLO(n,:).' ));
 
-    % DDMA 相位调制：量化后的确定相位 + 移相器随机误差
-    % （误差在循环内抽取 randn(nTX,1)：8 个 TX、本 chirp 各自独立的一次抽样）
-    DDMA_vec = exp(1j*( DDMA_phaseQ(:, n) ...
-               + double(enablePhaseErr)*deg2rad(phaseErrSigma_deg)*randn(nTX,1) ));
+    % DDMA 相位调制：量化后的确定相位 + 移相器相位偏差
+    % （静态口径 = 每帧一次 phErrStat, 硬件一致; phaseErrStatic=false 退回
+    %   逐 chirp 独立白噪诊断对照 —— 见开关区 phaseErrStatic 注释）
+    if enablePhaseErr && ~phaseErrStatic
+        phErrN = deg2rad(phaseErrSigma_deg) * randn(nTX, 1);   % 逐 chirp 独立(旧口径)
+    elseif enablePhaseErr
+        phErrN = phErrStat;                                     % 静态(默认)
+    else
+        phErrN = zeros(nTX, 1);
+    end
+    DDMA_vec = exp(1j*( DDMA_phaseQ(:, n) + phErrN ));
 
     % TX-TX 耦合后的实际辐射 DDMA 向量（TX n 辐射 = 自身码 + 串入的其它 TX 码）
     DDMA_eff = cTx.' * DDMA_vec;
