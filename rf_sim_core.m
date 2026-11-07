@@ -242,13 +242,16 @@ pnTrackCoef    = 7.6e-9;   % [旋钮] 跟踪误差系数 (s)：σ_δf = 系数×
                            %   【2026-10-29 两轮重标定(用户实测口径)】原 1e-8 时 300m 线损
                            %   −4.8dB, 实测 SNR 损耗随距离变化没这么大 → 8.9e-9(−3.8dB)
                            %   仍偏高 → 7.6e-9, 300m 线损 −2.8dB(σφ≈0.80 rad)。
-pnSholderBins  = 2;     % [旋钮] PLL 跟踪误差谱形肩宽(多普勒 bin)。2026-11-07 修:
-                        %   原逐 chirp 白噪 → 多普勒域白色 → 目标功率 (1−e^−σφ²) 份额
-                        %   平铺整行, 目标行中位被拉 +1.1dB(10dBsm@200m 取证), 与实测
-                        %   不符(实测: 肩膀可见但目标行中位不被拉高)。改为三阶低通
-                        %   成形谱: 能量集中谱线旁 ±肩宽 bin、五阶 30dB/oct 陡滚降; 边际 σ
-                        %   与系数标定口径一致(线损 4.343σφ² 与审计公式不动)。
-                        %   肩宽按实测谱图反标; Inf = 退回白噪(诊断对照)。
+pnShoulderBwHz = 300;   % [旋钮] 跟踪/跳频误差谱形的肩峰偏移 = PLL 环路带宽(Hz)。
+                        %   【用户口径 2026-11-08: 底噪两侧近线低、往两侧才抬成肩, 肩的
+                        %   偏移量与 PLL 环路带宽有关, 且起始不远】—— 即残余 PSD
+                        %   L(f)·4sin²(πfτ) 的形状: 近线共模对消(4sin²→0, 低), 随偏移
+                        %   按 f² 上升, 到环路带宽处肩峰, 带外被环路滤波陡截。
+                        %   谱形(跟踪+跳频共用的成形核): |H(f)| ∝ f/√(1+(f/fBW)^10)
+                        %   —— 近线∝f(功率∝f², 对消), fBW 处肩峰, 超出五阶 30dB/oct 截断;
+                        %   边际 σ 不变(线损 4.343σφ² 与审计公式不动)。多普勒偏移 bin =
+                        %   pnShoulderBwHz × nChirps × Tc; 300Hz ≈ 2.8bin(默认延续原 2bin
+                        %   口径)。设为本芯片真实环路带宽即自动落到正确偏移; Inf=白噪对照。
 
 % ---------- 9. 零频泄漏（片内直通 τ=0 → 差拍=0 → bin0；独立开关） ----------
 enableLeakDC   = true;    % [开关] 恰直流泄漏路径。开启后 bin0 出码梳，且 bin0 行
@@ -1130,11 +1133,11 @@ end
 if enablePllTrack && pnTrackCoef > 0
     sigmaDfTrk = pnTrackCoef * FreqSlope;
     wTrk = randn(1, nChirps);
-    if isfinite(pnSholderBins) && pnSholderBins > 0
-        fG = (0:nChirps-1) / nChirps;                     % 0..~1 循环频率
-        fG = min(fG, 1 - fG);                            % 折到 0..0.5
-        fcN = pnSholderBins / nChirps;                   % 肩宽(bin → 归一化)
-        hA = 1 ./ sqrt(1 + (fG / fcN) .^ 10);            % 五阶低通幅度(10 次幂=30dB/oct 陡滚降, 尾部不浮起)
+    if isfinite(pnShoulderBwHz) && pnShoulderBwHz > 0
+        fG = (0:nChirps-1) / (nChirps * Tc);             % Hz 偏移轴(循环)
+        fG = min(fG, 1/Tc - fG);                        % 折到 0..Fs/2
+        hA = (fG / pnShoulderBwHz) ./ sqrt(1 + (fG / pnShoulderBwHz) .^ 10);
+        hA(1) = 0;                                       % 线心对消(4sin²→0)
         pnTrkDf = real(ifft(fft(wTrk) .* hA));
         pnTrkDf = pnTrkDf / std(pnTrkDf) * sigmaDfTrk;   % 钉死边际 σ=标定口径
     else
@@ -1151,11 +1154,11 @@ end
 % 同款五阶低通成形(肩宽 pnSholderBins, 边际 σ 不变 → 残余相位 2πδfτ 口径不动)。
 if enableHopErr
     wHop = randn(1, nChirps);
-    if isfinite(pnSholderBins) && pnSholderBins > 0
-        fGh = (0:nChirps-1) / nChirps;
-        fGh = min(fGh, 1 - fGh);
-        fch = pnSholderBins / nChirps;
-        hAh = 1 ./ sqrt(1 + (fGh / fch) .^ 10);
+    if isfinite(pnShoulderBwHz) && pnShoulderBwHz > 0
+        fGh = (0:nChirps-1) / (nChirps * Tc);
+        fGh = min(fGh, 1/Tc - fGh);
+        hAh = (fGh / pnShoulderBwHz) ./ sqrt(1 + (fGh / pnShoulderBwHz) .^ 10);
+        hAh(1) = 0;
         hopErrSeq = real(ifft(fft(wHop) .* hAh));
         hopErrSeq = hopErrSeq / std(hopErrSeq) * hopErr_Hz;
     else
