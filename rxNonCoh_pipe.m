@@ -45,4 +45,7 @@ function figRx = rxNonCoh_pipe(fftCfg, dims)
         end
     end
     sgtitle('RX 非相参积累(8RX 线性功率平均→dB, 选阶前初查; 下行与上行内容相同, 图幅对齐积累图)');
+    % 逐距离门噪底叠加(本域中位, 与 estNoiseFloor 对数域中位口径一致; 用户需求: 距离视图同看噪声)
+    overlayNoiseLine(figRx, struct('match', 'RX 非相参', 'nf', median(rxDb, 2), ...
+                                   'x2', dims.dopBinNum - 1));
 end

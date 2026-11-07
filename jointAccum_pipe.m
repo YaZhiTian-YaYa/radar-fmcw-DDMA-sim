@@ -106,5 +106,9 @@ accumCfg.cohFloorPow = median(accumCfg.cohPeakPow(:));
         grid on;
     end
     sgtitle('积累图(上排: TXRX非相参 8TX对齐+8RX功率平均·DDM选阶 | 下排: TXRX相参 64元方位FFT·0°校准)');
+    % 逐距离门噪底叠加(各子图用本域中位; 相参域含角度取峰统计, 其"噪底"即检测门限参考电平)
+    overlayNoiseLine(accumCfg.figAccum, { ...
+        struct('match', '非相参', 'nf', median(nDb, 2), 'x2', dims.subBins - 1), ...
+        struct('match', '相参',   'exclude', '非', 'nf', median(cDb, 2), 'x2', dims.subBins - 1)});
     end                                             % if drawFigs
 end
