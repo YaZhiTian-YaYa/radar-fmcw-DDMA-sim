@@ -105,7 +105,13 @@ function [adcRawData, rfInfo] = rf_sim_core(nSamples, nChirps, TX_A, RX_A, anten
 % ---------- 1. 步进频（chirp 间起始频移） ----------
 coupling_ratio = prm.cr;   % 步进频占比 = 总跳频带宽 / 扫频带宽 B（0 = 无步进频, 由主函数 prm 注入）
 enableHopErr  = true;
-hopErr_Hz     = 5.6e4;  % 56kHz: 精确 +2.5dB(相对 100kHz −3.9dB); 60kHz −1.6dB; 100kHz −3.9dB
+hopErr_Hz        = 2e3;   % [旋钮] 跳频再锁定残余频率误差 σ(Hz)。【2026-11-08 由 56kHz 下调】
+                           %   56kHz 白噪在 50dBsm@300m 产生 +28dB 平地板墙(取证: 逐项关断
+                           %   13 项损伤唯一有效项), 与实测"无平墙只有肩"矛盾 → 上限受约束:
+                           %   目标行中位不抬高 ⇒ σφ<0.09rad@τ=2µs ⇒ σ_hop<7kHz, 取 2kHz。
+                           %   机理口径: 锁定后的残余随机性即 LO 相噪在 chirp 边界的采样,
+                           %   已由 pnLO 路径(profile×环路滤波)建模, 本项只保留小的再锁定
+                           %   独立残余; 56kHz 与 pnLO 存在双重计入。  % 56kHz: 精确 +2.5dB(相对 100kHz −3.9dB); 60kHz −1.6dB; 100kHz −3.9dB
                            %   (2026-11-04 修笔误: 曾误写 6e1=60Hz, 跳频误差实际处于关闭态)
 
                            %   起始频率 = 理想值 + N(0, hopErr_Hz²)。逐 chirp 独立抽取、
@@ -233,7 +239,11 @@ loopOrder        = 4;      % [旋钮] 环路滤波器阶数（截断陡度, PSD 
 % 带宽下的跟踪误差吸收进去 —— 所以默认系数 = 0, 改 B 后的【额外】恶化量由
 % 本项补足（一个实测点只能标定一个 B 的总和, 拆不开两项, 这是诚实口径）。
 enablePllTrack = true;      % [开关] PLL 扫频跟踪误差（开关开 + 系数 0 = 行为不变）
-pnTrackCoef    = 7.6e-9;   % [旋钮] 跟踪误差系数 (s)：σ_δf = 系数×B/Ts (Hz)
+pnTrackCoef    = 0;       % [旋钮] 跟踪误差系数(s), σ_δf=系数×B/Ts。【2026-11-08 默认关】
+                           %   白噪 σδf=63.5kHz(7.6e-9) 在 50dBsm@300m 产生 +18dB 平墙
+                           %   (σφ=0.8rad 平铺), 与实测矛盾; 其标定的"线损-2.8dB@300m"效果
+                           %   由 pnLO 路径(4sin² 残余 + 环路滤波 + 混叠肩)覆盖, 不再单独
+                           %   注入。原 7.6e-9 与 pnLO 双重计入。留旋钮供对照实验。
                            %   独立正态抽取。换芯片/换带宽后实测肩膀比仿真高时, 由
                            %   超出量反推: 多普勒域非相参能量占比 ≈ σ_φ², 其中
                            %   σ_φ = 2π·σ_δf·τ (rad, τ=目标双程时延) →
@@ -1133,16 +1143,7 @@ end
 if enablePllTrack && pnTrackCoef > 0
     sigmaDfTrk = pnTrackCoef * FreqSlope;
     wTrk = randn(1, nChirps);
-    if isfinite(pnShoulderBwHz) && pnShoulderBwHz > 0
-        fG = (0:nChirps-1) / (nChirps * Tc);             % Hz 偏移轴(循环)
-        fG = min(fG, 1/Tc - fG);                        % 折到 0..Fs/2
-        hA = (fG / pnShoulderBwHz) ./ sqrt(1 + (fG / pnShoulderBwHz) .^ 10);
-        hA(1) = 0;                                       % 线心对消(4sin²→0)
-        pnTrkDf = real(ifft(fft(wTrk) .* hA));
-        pnTrkDf = pnTrkDf / std(pnTrkDf) * sigmaDfTrk;   % 钉死边际 σ=标定口径
-    else
-        pnTrkDf = wTrk * sigmaDfTrk;                     % 白噪(旧口径, 诊断对照)
-    end
+    pnTrkDf = wTrk * sigmaDfTrk;                         % 白噪(硬件一致: 环路相关时间μs级≪chirp)
 else
     pnTrkDf = zeros(1, nChirps);                  % 标量会被循环下标索引, 必须成序列
 end
@@ -1154,16 +1155,7 @@ end
 % 同款五阶低通成形(肩宽 pnSholderBins, 边际 σ 不变 → 残余相位 2πδfτ 口径不动)。
 if enableHopErr
     wHop = randn(1, nChirps);
-    if isfinite(pnShoulderBwHz) && pnShoulderBwHz > 0
-        fGh = (0:nChirps-1) / (nChirps * Tc);
-        fGh = min(fGh, 1/Tc - fGh);
-        hAh = (fGh / pnShoulderBwHz) ./ sqrt(1 + (fGh / pnShoulderBwHz) .^ 10);
-        hAh(1) = 0;
-        hopErrSeq = real(ifft(fft(wHop) .* hAh));
-        hopErrSeq = hopErrSeq / std(hopErrSeq) * hopErr_Hz;
-    else
-        hopErrSeq = wHop * hopErr_Hz;
-    end
+    hopErrSeq = wHop * hopErr_Hz;                        % 白噪(硬件一致, 同上)
 else
     hopErrSeq = zeros(1, nChirps);
 end
