@@ -104,8 +104,8 @@ function [adcRawData, rfInfo] = rf_sim_core(nSamples, nChirps, TX_A, RX_A, anten
 
 % ---------- 1. 步进频（chirp 间起始频移） ----------
 coupling_ratio = prm.cr;   % 步进频占比 = 总跳频带宽 / 扫频带宽 B（0 = 无步进频, 由主函数 prm 注入）
-enableHopErr  = true;
-hopErr_Hz     = 5.6e4;  % 56kHz: 精确 +2.5dB(相对 100kHz −3.9dB); 60kHz −1.6dB; 100kHz −3.9dB
+enableHopErr  = false;
+hopErr_Hz     = 5.6e3;  % 56kHz: 精确 +2.5dB(相对 100kHz −3.9dB); 60kHz −1.6dB; 100kHz −3.9dB
                            %   (2026-11-04 修笔误: 曾误写 6e1=60Hz, 跳频误差实际处于关闭态)
 
                            %   起始频率 = 理想值 + N(0, hopErr_Hz²)。逐 chirp 独立抽取、
@@ -193,7 +193,7 @@ assert(lpfFc < 0.48*fsAdc, ...
 % ---------- 5. TX 移相器实际实现（DDMA 相位量化 + 随机误差） ----------
 enablePhaseQuant  = true;  % [开关] 相位量化到 N-bit 可实现值
 phaseBits         = 7;     % [旋钮] 移相器位数（8-bit → 360/256 = 1.40625°/LSB）
-enablePhaseErr    = true;  % [开关] 附加逐 chirp 正态随机相位误差
+enablePhaseErr    = false;  % [开关] 附加逐 chirp 正态随机相位误差
 phaseErrSigma_deg = 1;     % [旋钮] 随机误差标准差 (deg rms，典型 1~5）
 
 % ---------- 6. 天线/射频链带内幅度起伏（确定性 AM → R-FFT 展宽） ----------
@@ -225,7 +225,7 @@ loopOrder        = 4;      % [旋钮] 环路滤波器阶数（截断陡度, PSD 
 % 与 pnProfile 的关系：pnProfile 是【当前标定带宽 B=214MHz 下】的拟合, 已把该
 % 带宽下的跟踪误差吸收进去 —— 所以默认系数 = 0, 改 B 后的【额外】恶化量由
 % 本项补足（一个实测点只能标定一个 B 的总和, 拆不开两项, 这是诚实口径）。
-enablePllTrack = true;     % [开关] PLL 扫频跟踪误差（开关开 + 系数 0 = 行为不变）
+enablePllTrack = true;      % [开关] PLL 扫频跟踪误差（开关开 + 系数 0 = 行为不变）
 pnTrackCoef    = 7.6e-9;   % [旋钮] 跟踪误差系数 (s)：σ_δf = 系数×B/Ts (Hz), 逐 chirp
                            %   独立正态抽取。换芯片/换带宽后实测肩膀比仿真高时, 由
                            %   超出量反推: 多普勒域非相参能量占比 ≈ σ_φ², 其中
@@ -235,6 +235,13 @@ pnTrackCoef    = 7.6e-9;   % [旋钮] 跟踪误差系数 (s)：σ_δf = 系数×
                            %   【2026-10-29 两轮重标定(用户实测口径)】原 1e-8 时 300m 线损
                            %   −4.8dB, 实测 SNR 损耗随距离变化没这么大 → 8.9e-9(−3.8dB)
                            %   仍偏高 → 7.6e-9, 300m 线损 −2.8dB(σφ≈0.80 rad)。
+pnSholderBins  = 2;     % [旋钮] PLL 跟踪误差谱形肩宽(多普勒 bin)。2026-11-07 修:
+                        %   原逐 chirp 白噪 → 多普勒域白色 → 目标功率 (1−e^−σφ²) 份额
+                        %   平铺整行, 目标行中位被拉 +1.1dB(10dBsm@200m 取证), 与实测
+                        %   不符(实测: 肩膀可见但目标行中位不被拉高)。改为三阶低通
+                        %   成形谱: 能量集中谱线旁 ±肩宽 bin、五阶 30dB/oct 陡滚降; 边际 σ
+                        %   与系数标定口径一致(线损 4.343σφ² 与审计公式不动)。
+                        %   肩宽按实测谱图反标; Inf = 退回白噪(诊断对照)。
 
 % ---------- 9. 零频泄漏（片内直通 τ=0 → 差拍=0 → bin0；独立开关） ----------
 enableLeakDC   = true;    % [开关] 恰直流泄漏路径。开启后 bin0 出码梳，且 bin0 行
@@ -1108,6 +1115,28 @@ else
     ppRx4 = reshape(ppRx,          1, nRX, 1, 1);
 end
 
+% PLL 跟踪误差序列(频域成形, 2026-11-07): 三阶低通谱形 —— 能量集中谱线旁窄肩
+% (肩宽 pnSholderBins bin, 18dB/oct 陡滚降), 与实测一致: 肩膀可见、目标行中位不被拉高;
+% 逐 chirp 边际 σ 与系数标定口径一致(高斯边际不变形 → 线损 4.343σφ² 公式与审计不动)。
+% 旧实现为逐 chirp 白噪(多普勒域白色) → 目标功率的 (1−e^−σφ²) 份额平铺整行, 目标行
+% 中位被拉高(10dBsm@200m 实测 +1.1dB 取证), 与实测不符 —— pnSholderBins=Inf 退回白噪。
+if enablePllTrack && pnTrackCoef > 0
+    sigmaDfTrk = pnTrackCoef * FreqSlope;
+    wTrk = randn(1, nChirps);
+    if isfinite(pnSholderBins) && pnSholderBins > 0
+        fG = (0:nChirps-1) / nChirps;                     % 0..~1 循环频率
+        fG = min(fG, 1 - fG);                            % 折到 0..0.5
+        fcN = pnSholderBins / nChirps;                   % 肩宽(bin → 归一化)
+        hA = 1 ./ sqrt(1 + (fG / fcN) .^ 10);            % 五阶低通幅度(10 次幂=30dB/oct 陡滚降, 尾部不浮起)
+        pnTrkDf = real(ifft(fft(wTrk) .* hA));
+        pnTrkDf = pnTrkDf / std(pnTrkDf) * sigmaDfTrk;   % 钉死边际 σ=标定口径
+    else
+        pnTrkDf = wTrk * sigmaDfTrk;                     % 白噪(旧口径, 诊断对照)
+    end
+else
+    pnTrkDf = 0;
+end
+
 for n = 1:nChirps
     t_m = (n-1)*Tc;                           % 慢时间：本 chirp 起始时刻
     f_m = startFreq + (n-1)*f_step;           % 本 chirp 起始频率（理想值）
@@ -1116,13 +1145,9 @@ for n = 1:nChirps
     % 残余 = 逐 chirp 随机相位 2π·δf·τ（随时延/距离增大）; f_m 同时用于泄漏
     % 相位项（泄漏路径 τ 为 ns 级 → 影响可忽略, 与物理一致）
     f_m = f_m + double(enableHopErr) * hopErr_Hz * randn;
-    % PLL 扫频跟踪误差（开关区第 8b 块）：σ_δf = pnTrackCoef×B/Ts, 逐 chirp 独立。
-    % 与跳频误差同注入点 → 同机理: 残余逐 chirp 随机相位 2π·δf·τ, 随距离/带宽
-    % 增长 → 目标两侧肩膀随 B 抬高（pnProfile 不含 B 依赖, 补的正是这块）。
-    % 系数 0 时不抽取 randn（随机流不动 → 与旧结果逐位一致）
-    if enablePllTrack && pnTrackCoef > 0
-        f_m = f_m + pnTrackCoef * FreqSlope * randn;
-    end
+    % PLL 扫频跟踪误差（OU 相关, 见开关区 pnTrackTauChirps 注释）: 平稳 σ 与
+    % 原逐 chirp 独立口径一致, 谱形低通(肩膀型) —— 目标行中位不再被平铺拉高
+    f_m = f_m + pnTrkDf(n);
     slow_time    = t_m;
     t_fast_slow  = t2c + slow_time;           % 绝对时间（过采样栅格）
 
