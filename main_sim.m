@@ -341,6 +341,7 @@ hAdcCal = adcTimeDraw(adcCal, prm.fs, 'fig13_ADC_time_cal');   % 图13(从数据
 %% ---- 加窗 2D-FFT + 噪底(校准遍; 图14~16) ----
 fftCal = win2dfft(adcCal, winType);
 [fftCal, noiseCal] = estNoiseFloor(fftCal);
+overlayNoiseSurf(fftCal.figSurf, noiseCal.floorPowCh);   % 图15 曲面叠加逐距离门噪底线
 
 %% ---- 0° 校准(角反: 已知距离/速度 + 码位 + 耦合 → 各 TX bin; 图18) ----
 R1 = targetsCal(1).gate_R * 3e8/(2*prm.B);   % 角反距离 = gate_R × ΔR
@@ -383,6 +384,7 @@ fftCfg  = win2dfft(adcRawData, winType);
 
 %% ---- 逐距离门噪底估计(图23/23) ----
 [fftCfg, noiseCfg] = estNoiseFloor(fftCfg);
+overlayNoiseSurf(fftCfg.figSurf, noiseCfg.floorPowCh);   % 图22 曲面叠加逐距离门噪底线
 
 %% ---- RX 非相参积累(8RX 线性功率平均; 图25, DDMA 选阶之前的初查图) ----
 % 实测排查惯例(实机排障流程, 仿真沿用): 先不做解模糊选阶, 直接把 8 个 RX 合成一张 RD 图看数据"活不活"
@@ -643,3 +645,33 @@ for kk = 1:size(figList, 1)
 end
 fprintf('图片已保存到 %s：%s（原尺寸渲染, PPT默认宽 %g cm, 覆盖上次, 耗时 %.1f s）\n', ...
         saveDir, strjoin(figList(:, 2), ' / '), outW_cm, toc(tExp));
+
+function overlayNoiseSurf(figH, floorPowCh)
+%OVERLAYNOISESURF RD 3D 曲面各 RX 子图叠加"噪底 vs 距离"红线(用户需求: 距离视图同时看噪声)
+%   前(多普勒0)后(多普勒末)两缘各画一条: 前缘粗红实线, 后缘细红虚线, 保证任意视角可见;
+%   floorPowCh 为 estNoiseFloor 的逐通道逐距离门噪底(线性), dB = 10lg(·), 与 rdDB 同源同标尺。
+if isempty(figH) || ~ishandle(figH), return; end
+nRx = size(floorPowCh, 2);
+nR  = size(floorPowCh, 1);
+x   = 0:nR-1;
+axs = reshape(findall(figH, 'Type', 'axes'), 1, []);   % 转行向量: for 才逐元素迭代
+for ax = axs
+    ttl = ax.Title.String;
+    if isempty(regexp(ttl, 'RX\s*\d+', 'once')), continue; end
+    rxI = str2double(regexp(ttl, 'RX\s*(\d+)', 'tokens', 'once'));
+    if ~isscalar(rxI) || isnan(rxI) || rxI > nRx, continue; end
+    fDb = 10*log10(floorPowCh(:, rxI) + eps);
+    yd  = ax.YLim;                       % 多普勒范围(取自曲面数据)
+    hold(ax, 'on');
+    plot3(ax, x, zeros(1, nR), fDb, 'r-',  'LineWidth', 1.6);
+    plot3(ax, x, yd(2)*ones(1, nR), fDb, 'r--', 'LineWidth', 0.8);
+end
+% 图例说明加在第一个子图
+axs = findall(figH, 'Type', 'axes');
+if ~isempty(axs)
+    ax1 = axs(end);
+    yl = ax1.YLim; zl = ax1.ZLim;
+    text(ax1, 0.02, 0.02, '红线 = 逐距离门噪底(中位)  距离bin→', 'Units', 'normalized', ...
+        'FontSize', 9, 'Color', [0.75 0.05 0.05], 'BackgroundColor', [1 1 1 0.6]);
+end
+end
