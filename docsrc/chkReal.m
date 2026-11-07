@@ -1,0 +1,10 @@
+addpath('F:\Work3\CH_NEW_95_射频_DDMA');
+T = @(gR,gD,az,el,rcs,ph) struct('gate_R',gR,'gate_D',gD,'azi',az,'ele',el,'rcsDb',rcs,'rcsPhDeg',ph,'vTan',0,'isCorner',0);
+C = struct('gate_R',5,'gate_D',0,'azi',0,'ele',0,'rcsDb',-5,'rcsPhDeg',0,'vTan',0,'isCorner',1);
+targetsOverride = [C, T(285,0,0,0,10,0)]; seedOverride = 4;
+saveFigDir='C:\Users\NJ\AppData\Local\Temp\probe95\cohfigs'; batchState.idx = 1; batchState.okRun = true;
+run('F:\Work3\CH_NEW_95_射频_DDMA\main_sim.m');
+rowT = squeeze(20*log10(abs(fftCfg.data_sva(286, 7, :)) + eps));
+rowE = squeeze(20*log10(abs(fftCfg.data_sva(350, 7, :)) + eps));
+[~, pk] = maxk(rowT, 16); m = true(1,256); m(mod((pk-3:pk+3),256)+1) = false;
+fprintf('CHK 10dBsm@200m: 排线中位 %7.2f | 空行 %7.2f | 墙高 %+.2f | 行峰 %7.2f\n', median(rowT(m)), median(rowE), median(rowT(m))-median(rowE), max(rowT));

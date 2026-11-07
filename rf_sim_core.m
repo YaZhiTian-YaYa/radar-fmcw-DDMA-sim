@@ -104,8 +104,8 @@ function [adcRawData, rfInfo] = rf_sim_core(nSamples, nChirps, TX_A, RX_A, anten
 
 % ---------- 1. 步进频（chirp 间起始频移） ----------
 coupling_ratio = prm.cr;   % 步进频占比 = 总跳频带宽 / 扫频带宽 B（0 = 无步进频, 由主函数 prm 注入）
-enableHopErr  = false;
-hopErr_Hz     = 5.6e3;  % 56kHz: 精确 +2.5dB(相对 100kHz −3.9dB); 60kHz −1.6dB; 100kHz −3.9dB
+enableHopErr  = true;
+hopErr_Hz     = 5.6e4;  % 56kHz: 精确 +2.5dB(相对 100kHz −3.9dB); 60kHz −1.6dB; 100kHz −3.9dB
                            %   (2026-11-04 修笔误: 曾误写 6e1=60Hz, 跳频误差实际处于关闭态)
 
                            %   起始频率 = 理想值 + N(0, hopErr_Hz²)。逐 chirp 独立抽取、
@@ -120,7 +120,7 @@ hopErr_Hz     = 5.6e3;  % 56kHz: 精确 +2.5dB(相对 100kHz −3.9dB); 60kHz �
                            %   随目标时延/距离增大 → 远目标多普勒码线展宽成噪底
 
 % ---------- 2. 接收机白噪声（空暗室底噪, 与目标无关） ----------
-enableNoise = true;        % [开关] 接收机白噪声
+enableNoise = true;          % [开关] 接收机白噪声
 NF_dB       = 11;          % [旋钮] 噪声系数 (dB)，控制底噪高低（典型 10~20）
 
 % ---------- 3. IF 模拟高通 ×2（片上连续时间有源滤波器: Gm-C / active-RC） ----------
@@ -128,7 +128,7 @@ NF_dB       = 11;          % [旋钮] 噪声系数 (dB)，控制底噪高低（�
 % 选档正是这个结构, 典型档位 175/235/350/500 kHz 一类)。只挡直流偏置、收发直耦
 % 和极近距杂波 —— 阶数高了群延迟大、冲激响应振铃, 会把近距小目标弄坏, 所以
 % 故意做温和: 每节一阶(无振铃), 过渡带缓, 两节串联等效二阶但阻尼最大。
-enableHpf  = true;         % [开关] 两级模拟高通
+enableHpf = true;           % [开关] 两级模拟高通
 gpuMode    = 'auto';       % [旋钮] 目标回波张量算力: 'auto'(有GPU用GPU) | 'on' | 'off'(纯CPU张量)
 hpf1Fc     = 175e3;        % [旋钮] 高通 1(混频输出级)截止 (Hz) —— TI 典型档 175/235/350/500k
 hpf1Order  = 1;            % [旋钮] 高通 1 阶数(固定 1: 一阶节)
@@ -155,7 +155,7 @@ hpfFloor_dB = -60;         % [旋钮] 泄漏旁路耦合 (dB)：部分泄漏绕�
 %   带边噪声均衡 enableHbComp): 信号 @16.7M(300m) −0.0 | @19.5M(350m) −0.2(残余
 %   droop) | @20M(奈奎斯特) −3.4 | @24M −95 | @30M −104 dB(悬崖不变); 噪底(折叠
 %   对合计×均衡)全带 ±0.2dB 平(对齐芯片实测)。输出 NEB ≈ 20.2M(均衡后数值积分)。
-enableLpf = true;          % [开关] 抗混叠低通(模拟域)
+enableLpf = true;           % [开关] 抗混叠低通(模拟域)
 lpfOrder  = 3;             % [旋钮] 阶数(巴特沃斯, SOS 实现; 模拟域只管宽处, 可缓)
 % ---- 【两段式链路 2026-10 定稿, 对齐真实芯片"宽模拟 + 数字悬崖"架构】----
 % chipOsr = 降采样倍数(芯片 ADC 实采样率 = chipOsr×fs):
@@ -174,7 +174,7 @@ assert(any(chipOsr == [1 2 4]), 'chipOsr 只支持 1/2/4');
 hbTaps    = [63 127];      % [旋钮] 各级半带 FIR 抽头数(奇数, 4k±1; 第 s 级取 hbTaps(min(s,end)))
                            %   末级是带边悬崖, 要长: 127 抽头@80M 域 → 过渡带 ≈±1.8 MHz
 hbBeta    = 8;             % [旋钮] 半带 Kaiser 窗 β(8 ≈ −60 dB 阻带)
-enableHbComp = true;       % [开关] 带边噪声均衡(照 96 修法 enableCicComp; 2026-10-28
+enableHbComp = true;        % [开关] 带边噪声均衡(照 96 修法 enableCicComp; 2026-10-28
                            %   对齐芯片实测: 实测远端噪底【无】滤波形状 —— 不均衡时末级半带
                            %   过渡带把白噪压出 ~2dB 下垂裙边, 实测平)
 compFreezeV  = 1.0;        % [旋钮] 均衡冻结点(v = f/(fs/2), 补偿到此为止; 1.0 = 全带)
@@ -193,7 +193,7 @@ assert(lpfFc < 0.48*fsAdc, ...
 % ---------- 5. TX 移相器实际实现（DDMA 相位量化 + 随机误差） ----------
 enablePhaseQuant  = true;  % [开关] 相位量化到 N-bit 可实现值
 phaseBits         = 7;     % [旋钮] 移相器位数（8-bit → 360/256 = 1.40625°/LSB）
-enablePhaseErr    = false;  % [开关] 附加逐 chirp 正态随机相位误差
+enablePhaseErr = true;  % [开关] 附加逐 chirp 正态随机相位误差
 phaseErrSigma_deg = 1;     % [旋钮] 随机误差标准差 (deg rms，典型 1~5）
 
 % ---------- 6. 天线/射频链带内幅度起伏（确定性 AM → R-FFT 展宽） ----------
@@ -206,7 +206,7 @@ nonlinPct    = 0.017;        % [旋钮] 非线性度 (%) = 最大瞬时频偏 / 
 nonlinType   = 'hump';     % [旋钮] 形状: 'hump'单凸 | 'dip'单凹 | 'hump_dip'先凸再凹 | 'dip_hump'先凹再凸
 
 % ---------- 8. 相位噪声 + PLL 环路滤波器（两项独立开关；环路滤波只整形 PN） ----------
-enablePhaseNoise = true;   % [开关] 锁相环相位噪声（共锁相环 → 8TX 一致）
+enablePhaseNoise = true;   % 锁相环相位噪声（共锁相环 → 8TX 一致）
 pnProfile        = [1e3 -49.25; 10e3 -65.84; 100e3 -70.80;...
                     1e6 -95.42; 10e6 -121.76; 100e6 -130.03];  % [旋钮] PN 拟合点 [Hz, dBc/Hz]
                            %   （近端 = 环路内特性；远端截断行为由本块环路滤波器决定）
@@ -253,7 +253,7 @@ leakDC_dB      = 0;        % [旋钮] 直流路径相对电平 (dB, 与 leakRes_
                            %   隔离度基准幅度；片内直通通常最强, 0 = 满值）
 
 % ---------- 10. 近距离非 0 bin 泄漏多径族（地弹+屏蔽腔多次反射 / 环境残余反射） ----------
-enableLeakNear = true;     % [开关] 近距非零 bin 泄漏多径族【统一开关】——
+enableLeakNear = true;      % [开关] 近距非零 bin 泄漏多径族【统一开关】——
                            %   一次性启停 leakPaths 全部近距路径；false → 近距码梳
                            %   全部消失，只剩闪烁噪声抬底（对比实验用）。
                            %   幅度基准同零频块：isoMat × (leakRes_dB + 逐路径电平)
@@ -1134,17 +1134,38 @@ if enablePllTrack && pnTrackCoef > 0
         pnTrkDf = wTrk * sigmaDfTrk;                     % 白噪(旧口径, 诊断对照)
     end
 else
-    pnTrkDf = 0;
+    pnTrkDf = zeros(1, nChirps);                  % 标量会被循环下标索引, 必须成序列
+end
+
+% 步进频跳频误差序列(2026-11-07 二次取证修复): 逐 chirp 白噪 σ=56kHz 会以
+% 白色多普勒把目标功率 ~平铺整行 —— 50dBsm@300m 实测目标行中位被拉 +28dB(墙),
+% 且逐项关断(PLL/相噪/耦合/交调/滤波/泄漏共 13 项)均不消, 唯关 hopErr 塌至 +5dB。
+% 物理上合成器再锁定误差相邻 chirp 相关(环路带宽内), 非白噪 → 与 PLL 跟踪误差
+% 同款五阶低通成形(肩宽 pnSholderBins, 边际 σ 不变 → 残余相位 2πδfτ 口径不动)。
+if enableHopErr
+    wHop = randn(1, nChirps);
+    if isfinite(pnSholderBins) && pnSholderBins > 0
+        fGh = (0:nChirps-1) / nChirps;
+        fGh = min(fGh, 1 - fGh);
+        fch = pnSholderBins / nChirps;
+        hAh = 1 ./ sqrt(1 + (fGh / fch) .^ 10);
+        hopErrSeq = real(ifft(fft(wHop) .* hAh));
+        hopErrSeq = hopErrSeq / std(hopErrSeq) * hopErr_Hz;
+    else
+        hopErrSeq = wHop * hopErr_Hz;
+    end
+else
+    hopErrSeq = zeros(1, nChirps);
 end
 
 for n = 1:nChirps
     t_m = (n-1)*Tc;                           % 慢时间：本 chirp 起始时刻
     f_m = startFreq + (n-1)*f_step;           % 本 chirp 起始频率（理想值）
-    % 步进频跳频误差：起始频率 = 理想值 + 逐 chirp 独立正态随机偏差（不累积,
-    % 以理想值为基准）。δf 同时进入发射相位与本振 → 差拍频率不变（slope·τ）,
+    % 步进频跳频误差：起始频率 = 理想值 + 相关随机偏差(成形谱, 见上方块注释)。
+    % δf 同时进入发射相位与本振 → 差拍频率不变（slope·τ）,
     % 残余 = 逐 chirp 随机相位 2π·δf·τ（随时延/距离增大）; f_m 同时用于泄漏
     % 相位项（泄漏路径 τ 为 ns 级 → 影响可忽略, 与物理一致）
-    f_m = f_m + double(enableHopErr) * hopErr_Hz * randn;
+    f_m = f_m + hopErrSeq(n);
     % PLL 扫频跟踪误差（OU 相关, 见开关区 pnTrackTauChirps 注释）: 平稳 σ 与
     % 原逐 chirp 独立口径一致, 谱形低通(肩膀型) —— 目标行中位不再被平铺拉高
     f_m = f_m + pnTrkDf(n);
