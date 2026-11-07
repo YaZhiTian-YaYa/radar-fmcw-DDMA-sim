@@ -49,8 +49,11 @@ function fftCfg = win2dfft(adcRawData, winType)
     % ----- 图14: 距离-多普勒图（8 个 RX 通道） -----
     fig2 = figure('Position', figPos, 'Name', 'fig14_RD_8RX');
     tiledlayout(2, ceil(nRX/2), 'TileSpacing', 'compact', 'Padding', 'compact');
-    floorEst = median(rdDB(isfinite(rdDB(:))));      % 底噪估计(数据中位)
-    cRange = [max(5*floor((floorEst-10)/5), 0), 5*ceil((max(rdDB(:))+5)/5)];  % 底噪−10 ~ 峰值+5
+    % 纵轴下限 = 第 1 个距离 bin 的噪底(近距泄漏+HPF 过渡带使 bin0 为全图最高噪底, 取它则
+    % 任何噪声不会被裁; 多 RX 统一: 对 bin0 的多普勒×RX 联合中位)。去掉旧 max(...,0) 截断
+    % (ADC counts 标尺下噪底常为负 dB, 截 0 会把整个噪声层裁出轴外 —— 显示不全的根因)。
+    nf0 = median(reshape(rdDB(1, :, :), 1, []), 'omitnan');
+    cRange = [5*floor(nf0/5), 5*ceil((max(rdDB(:)) + 5)/5)];
     for i = 1:nRX
         nexttile;
         imagesc(0:nChirps-1, 0:nV-1, squeeze(rdDB(:, i, :)));
