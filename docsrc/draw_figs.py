@@ -103,6 +103,9 @@ class Fig:
             segs = [pa, (bus, pa[1]), (bus, pb[1]), pb]
         else:
             segs = [pa, (pa[0], bus), (pb[0], bus), pb]
+        for s0, s1 in zip(segs[:-1], segs[1:]):
+            if not self.seg_clear(s0, s1, skip=(a, b)):
+                raise RuntimeError('正交连线穿框: %s -> %s' % (s0, s1))
         for s, e in zip(segs[:-1], segs[1:-1]):
             self._line(s, e, color, lw, solid=True)
         self._line(segs[-2], segs[-1], color, lw, solid=True)
@@ -203,11 +206,30 @@ BUS2 = 596
 g.ortho(rb[0], bA, 'r', 'l', bus=BUS2)
 for k in [1, 2, 3, 4]:
     g.ortho(rb[k], bB, 'r', 'l', bus=BUS2)
-outb = g.box(756, 548, 'σ 写回点云', 'se', w=170)
-g.ortho(bA, outb, 'b', 't', bus=520)
-g.ortho(bB, outb, 'b', 't', bus=476)
+outb = g.box(716, 560, 'σ 写回点云', 'se', w=170)
+segsB = [((bB['cx'], bB['y1']), (bB['cx'], (bB['y1']+outb['y0'])/2)),
+         ((bB['cx'], (bB['y1']+outb['y0'])/2), (outb['cx'], (bB['y1']+outb['y0'])/2)),
+         ((outb['cx'], (bB['y1']+outb['y0'])/2), (outb['cx'], outb['y0']))]
+for s0, s1 in segsB:
+    if not g.seg_clear(s0, s1, skip=(bB, outb)):
+        raise RuntimeError('bB 连线穿框: %s' % (s0,))
+for s0, s1 in segsB[:-1]:
+    g._line(s0, s1, C_ARROW, 2.0)
+g._line(segsB[-1][0], segsB[-1][1], C_ARROW, 2.0)
+g._head(segsB[-1][0], segsB[-1][1], C_ARROW)
+CH = 905
+segsA = [((bA['cx'], bA['y1']), (bA['cx'], bA['y1']+24)),
+         ((bA['cx'], bA['y1']+24), (CH, bA['y1']+24)),
+         ((CH, bA['y1']+24), (CH, outb['cy'])),
+         ((CH, outb['cy']), (outb['x1']+8, outb['cy']))]
+for s0, s1 in segsA:
+    if not g.seg_clear(s0, s1, skip=(bA, outb)):
+        raise RuntimeError('绕行通道穿框: %s' % (s0,))
+for s0, s1 in segsA[:-1]:
+    g._line(s0, s1, C_ARROW, 2.0)
+g._line(segsA[-1][0], segsA[-1][1], C_ARROW, 2.0)
+g._head(segsA[-1][0], segsA[-1][1], C_ARROW)
 # 角色排序注记(连到 OMP第一 那行)
-g.note(rb[1], 'OMP/DML 的"第一" = 联合解中\n较强者（2026-11-07 修：原按角\n度排，会出现第二目标读数偏高）', dx=14, w=200)
 g.save('fig_s2_route.png')
 
 # ================= 图 1-3 =================
@@ -256,7 +278,7 @@ for txt, st, nt in steps:
 g.save('fig_f_a.png')
 
 # ================= 图 1-5 OMP =================
-g = Fig(1000, 1310)
+g = Fig(1020, 1310)
 g.title('OMP 双点 RCS 计算流程', 'α 域联合权重 · 尺 = K0 · 角隔约 ≥2°')
 steps = [
  ('检测点（簇）→ 36 通道方位行快拍 x', 'se', None),
@@ -270,19 +292,19 @@ steps = [
  ('逐点叶损恢复（距离 hannPk3 + 8 码线均值）', 'proc', '旧方法（插值距离+统计常数）存在\n±2dB 误差，已弃用'),
  ('σ_i = (W_i − 噪底) + 40lgR + K0，两成员各写回', 'ok', None)]
 y, prev, gate_b = 104, None, None
-BW = 480
+BW = 452
 for txt, st, nt in steps:
-    b = g.box(330, y, txt, st, w=BW)
+    b = g.box(462, y, txt, st, w=BW)
     if prev: g.arrow((prev['cx'], prev['y1']), (b['cx'], b['y0']))
     if '12 dB' in txt: gate_b = b
-    if nt: g.note(b, nt, dx=22, w=250)
+    if nt: g.note(b, nt, dx=22, w=236)
     prev = b; y = b['y1'] + 58
-nb = g.box(130, gate_b['cy']+30, '该点按独立点\n走相参图支路', 'no', w=160, fsize=12)
-g.arrow((gate_b['x0'], gate_b['cy']), (nb['x1'], nb['cy']), label='否', check=False, skip=(gate_b, nb), color='#8A2A20')
+nb = g.box(122, gate_b['cy'], '该点按独立点\n走相参谱支路', 'no', w=158, fsize=12)
+g.arrow((gate_b['x0'], gate_b['cy']), (nb['x1'], nb['cy']), label='否', skip=(gate_b, nb), color='#8A2A20')
 g.save('fig_f_b.png')
 
 # ================= 图 1-6 DML =================
-g = Fig(1000, 1400)
+g = Fig(1020, 1400)
 g.title('DML 双点 RCS 计算流程', 'α 域联合权重 · 尺 = K0 · 角隔 0.7°~1.2°（OMP 检不出的亚波束区）')
 steps = [
  ('OMP 未出第二目标的母点 → 36 通道快拍 x', 'se', None),
@@ -296,15 +318,15 @@ steps = [
  ('双原子联合 LS（κ≤4 pinv）→ W1 / W2', 'proc', None),
  ('逐点叶损恢复 → σ_i = (W_i − 噪底) + 40lgR + K0', 'ok', None)]
 y, prev, gate_b = 102, None, None
-BW = 480
+BW = 452
 for txt, st, nt in steps:
-    b = g.box(330, y, txt, st, w=BW)
+    b = g.box(462, y, txt, st, w=BW)
     if prev: g.arrow((prev['cx'], prev['y1']), (b['cx'], b['y0']))
     if '四道门' in txt: gate_b = b
-    if nt: g.note(b, nt, dx=22, w=256)
+    if nt: g.note(b, nt, dx=22, w=232)
     prev = b; y = b['y1'] + 60
-nb = g.box(132, gate_b['cy']+52, '按设计输出融合单点\n（独立支路读数\n≈ 两目标相干和）', 'no', w=170, fsize=11.5)
-g.arrow((gate_b['x0'], gate_b['cy']), (nb['x1'], nb['cy']), label='否', check=False, skip=(gate_b, nb), color='#8A2A20')
+nb = g.box(126, gate_b['cy'], '按设计输出融合单点\n（独立支路读数\n≈ 两目标相干和）', 'no', w=166, fsize=11.5)
+g.arrow((gate_b['x0'], gate_b['cy']), (nb['x1'], nb['cy']), label='否', skip=(gate_b, nb), color='#8A2A20')
 g._line((nb['cx'], nb['y1']), (nb['cx'], nb['y1']+42), '#9A9A9A', 1.2, solid=False)
 fn = F(11)
 g.d.text((nb['cx']*SS - g.d.textlength('单帧体制下的最终行为（车载高速场景不采用多帧）', font=fn)/2,
