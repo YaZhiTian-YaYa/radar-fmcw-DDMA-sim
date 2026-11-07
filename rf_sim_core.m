@@ -105,7 +105,7 @@ function [adcRawData, rfInfo] = rf_sim_core(nSamples, nChirps, TX_A, RX_A, anten
 % ---------- 1. 步进频（chirp 间起始频移） ----------
 coupling_ratio = prm.cr;   % 步进频占比 = 总跳频带宽 / 扫频带宽 B（0 = 无步进频, 由主函数 prm 注入）
 enableHopErr  = true;
-hopErr_Hz        = 2e3;   % [旋钮] 跳频再锁定残余频率误差 σ(Hz)。【2026-11-08 由 56kHz 下调】
+hopErr_Hz        = 500;   % [旋钮] 跳频再锁定残余频率误差 σ(Hz)。【2026-11-08 由 56kHz 下调】
                            %   56kHz 白噪在 50dBsm@300m 产生 +28dB 平地板墙(取证: 逐项关断
                            %   13 项损伤唯一有效项), 与实测"无平墙只有肩"矛盾 → 上限受约束:
                            %   目标行中位不抬高 ⇒ σφ<0.09rad@τ=2µs ⇒ σ_hop<7kHz, 取 2kHz。
@@ -197,7 +197,7 @@ assert(lpfFc < 0.48*fsAdc, ...
 %   两段式后模拟截止挂 ADC 率(结构上永远远离信号带), 带边交给数字半带 —— 该类
 %   配置错误从结构上消除。
 % ---------- 5. TX 移相器实际实现（DDMA 相位量化 + 随机误差） ----------
-enablePhaseQuant  = true;  % [开关] 相位量化到 N-bit 可实现值
+enablePhaseQuant = true;  % [开关] 相位量化到 N-bit 可实现值
 phaseBits         = 7;     % [旋钮] 移相器位数（8-bit → 360/256 = 1.40625°/LSB）
 enablePhaseErr = true;  % [开关] 附加逐 chirp 正态随机相位误差
 phaseErrSigma_deg = 1;     % [旋钮] 随机误差标准差 (deg rms，典型 1~5）
@@ -264,7 +264,7 @@ pnShoulderBwHz = 300;   % [旋钮] 跟踪/跳频误差谱形的肩峰偏移 = PL
                         %   口径)。设为本芯片真实环路带宽即自动落到正确偏移; Inf=白噪对照。
 
 % ---------- 9. 零频泄漏（片内直通 τ=0 → 差拍=0 → bin0；独立开关） ----------
-enableLeakDC   = true;    % [开关] 恰直流泄漏路径。开启后 bin0 出码梳，且 bin0 行
+enableLeakDC = true;    % [开关] 恰直流泄漏路径。开启后 bin0 出码梳，且 bin0 行
                            %   慢时间序列为实数 → 实采样多普勒共轭镜像（实测 bin0
                            %   完全看不到 → 默认关；做镜像机理演示时再开）。
                            %   幅度基准 = 隔离度矩阵 isoMat（下方 TX-RX 收发隔离
