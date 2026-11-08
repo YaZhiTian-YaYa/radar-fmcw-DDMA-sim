@@ -39,7 +39,7 @@ plot(0:255, rowT, '-', 'Color', [.65 .78 .95], 'LineWidth', 0.8); hold on;
 plot(0:255, medfilt1(rowT, 9), 'b-', 'LineWidth', 2);
 plot(0:255, medfilt1(rowE, 9), 'k--', 'LineWidth', 1.5);
 plot([0 255], [median(rowE) median(rowE)], 'k:', 'HandleVisibility','off');
-ylim([median(rowE)-5, median(rowE)+15]); xlim([0 255]); grid on; box off;
+ylim([median(rowE)-5, median(rowE)+32]); xlim([0 255]); grid on; box off;
 xlabel('多普勒 bin (256)'); ylabel('幅度 (dB)');
 lg = legend('目标行原始(码线截顶, 看包络)','目标行 9bin 中值包络','空行 = 纯热噪(9bin中值)', ...
     'Location','south','Orientation','horizontal');
