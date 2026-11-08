@@ -80,8 +80,8 @@ accumCfg.cohFloorPow = median(accumCfg.cohPeakPow(:));
     nDb = 10*log10(accumCfg.nonCohMap);          % [rngUse距离 × subBins(=16)子带] dB
     cDb = 10*log10(accumCfg.cohPeakPow);
     [dopGrid, rngGrid] = meshgrid(0:dims.subBins-1, 0:dims.rngUse-1);  % 子带位置(0基), xlim 显示全带; 距离 0 基(与 RD 图/gate_R 一致)
-    zlN = [5*floor(median(nDb(1, :), 'omitnan')/5), 5*ceil((max(nDb(:))+5)/5)];  % 下限=本域距离bin0噪底
-    zlC = [5*floor(median(cDb(1, :), 'omitnan')/5), 5*ceil((max(cDb(:))+5)/5)];  % (相参域含角度取峰统计)
+    zlN = [5*floor(min(nDb(1, :), [], 'omitnan')/5), 5*ceil((max(nDb(:))+5)/5)];  % 下限=本域距离bin0最小值(用户约定)
+    zlC = [5*floor(min(cDb(1, :), [], 'omitnan')/5), 5*ceil((max(cDb(:))+5)/5)];  % 相参域同口径bin0最小值(用户约定)
 
     accumCfg.figAccum = figure('Position', figPos, 'Name', 'fig26_JointAccum');
     tiledlayout(2, 4, 'TileSpacing', 'compact', 'Padding', 'compact');

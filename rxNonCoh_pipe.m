@@ -28,7 +28,7 @@ function figRx = rxNonCoh_pipe(fftCfg, dims)
     viewList = [0 0; 45 45; 90 0; 0 90];           % 依次 = 积累图中 视角1~4
     viewName = {'视角1', '视角2', '视角3', '视角4'};
     [dopGrid, rngGrid] = meshgrid(0:dims.dopBinNum-1, 0:dims.rngUse-1);  % 距离 0 基(与 RD 图/gate_R 一致)
-    zl = [5*floor(median(rxDb(1, :), 'omitnan')/5), 5*ceil((max(rxDb(:))+5)/5)];  % 下限=本域距离bin0噪底
+    zl = [5*floor(min(rxDb(1, :), [], 'omitnan')/5), 5*ceil((max(rxDb(:))+5)/5)];  % 下限=本域距离bin0最小值(用户约定)
 
     figRx = figure('Position', figPos, 'Name', 'fig25_RXNonCoh');
     tiledlayout(2, 4, 'TileSpacing', 'compact', 'Padding', 'compact');
