@@ -13,12 +13,12 @@ for ax = reshape(findall(figH, 'Type', 'axes'), 1, [])
     if ~isscalar(rxI) || isnan(rxI) || rxI > nRx, continue; end
     yd  = ax.YLim;
     hold(ax, 'on');
-    plot3(ax, x, zeros(1, nR),  floorDbCh(:, rxI), 'r-',  'LineWidth', 1.6);
-    plot3(ax, x, yd(2)*ones(1, nR), floorDbCh(:, rxI), 'r--', 'LineWidth', 0.8);
+    plot3(ax, x, zeros(1, nR),  floorDbCh(:, rxI), 'k-',  'LineWidth', 1.6);
+    plot3(ax, x, yd(2)*ones(1, nR), floorDbCh(:, rxI), 'k--', 'LineWidth', 0.8);
 end
 axs = reshape(findall(figH, 'Type', 'axes'), 1, []);
 if ~isempty(axs)
-    text(axs(end), 0.02, 0.02, '红线 = 逐距离门噪底(中位)  距离bin→', 'Units', 'normalized', ...
-        'FontSize', 9, 'Color', [0.75 0.05 0.05], 'BackgroundColor', [1 1 1 0.6]);
+    text(axs(end), 0.02, 0.02, '黑线 = 逐距离门噪底(中位)  距离bin→', 'Units', 'normalized', ...
+        'FontSize', 9, 'Color', [0 0 0], 'BackgroundColor', [1 1 1 0.6]);
 end
 end
