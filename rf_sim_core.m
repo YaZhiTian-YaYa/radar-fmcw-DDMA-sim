@@ -230,7 +230,7 @@ pnProfile        = [1e3 -49.25; 10e3 -65.84; 30e3 -92; 100e3 -108;...
                            %   结果; VCO 支路在 30k~800k 的真实电平被环路压着不可见, 扫
                            %   200kHz 环路时会露出 —— 用实测"肩随 loopBW 移动"量标定之。
 % —— VCO 支路两套可编辑拟合点 + 实测肩膀模板开关(2026-11-08, 用户口径: 物理机理内试探) ——
-enableMeasShoulder = true;  % [开关] VCO 支路用"实测肩膀模板"试探值(平顶形, 使 chirp 内相噪
+enableMeasShoulder = false; % [开关] VCO 支路用"实测肩膀模板"试探值(平顶形, 使 chirp 内相噪
                            %   距离弥散 + 多普勒折叠肩可见)。true = pnProfileVcoMeas,
                            %   false = pnProfileVcoLean(瘦占位, 弥散≈不可见)。
                            %   试探依据: 99 工程实测模板(肩随 loopBW 移动/距离剖面结构),
@@ -262,6 +262,29 @@ loopBW_Hz        = 800e3;  % [旋钮] 环路带宽 (Hz) = 参考支路与 VCO �
                            %   实测肩膀口径(用户判读): 近线低(4sin² 共模对消)→随偏移 f²
                            %   上升→min(1/2τ, 环路交接点)处成肩→带外 VCO 地板混叠为平底。
 loopOrder        = 4;      % [旋钮] 环路滤波器阶数（截断陡度, PSD ~12n dB/oct）
+
+% ---------- 8c. 目标回波路径相噪（信号模拟器自身的 PN, 2026-11-08 新增） ----------
+% 实测对标口径: 用信号模拟器注入目标时, 模拟器再发射会叠加【它自己的】相噪
+% (比雷达真实值大很多, 用户实测确认) —— 该相噪在雷达去斜时【不对消】(只存在于
+% 回波侧), 全额进差拍 → 强目标码线两侧出相噪台座肩(=实测"小副瓣"), 而雷达自身
+% LO/TX 路径不染 → 其它距离的噪底保持平坦(实测口径: 远场平坦 + 目标行有肩)。
+% 曾试"肥 VCO 挂 LO"路线 —— 定量证伪: 肥 PN 把泄漏线(比目标强得多)抹宽, 中场
+% 噪底峰峰波动 5.3dB(瘦套 1.6dB), 完全不可接受; 回波路径注入双约束同时满足。
+% 纯雷达仿真(无模拟器)置 false。审计口径: 该项只影响强目标自身行, 产品口径
+% (≤15dBsm)线功率低, 台座埋于热噪, nonCohSNR/RCS 不受影响。
+enableTgtPnSim  = false;  % [开关] 目标回波携带模拟器相噪(默认关 = 干净回波, 对齐实测
+                           %   "无相噪参考案例": 多普勒各峰纯 Hann 跨骑展开、噪底平坦;
+                           %   true = 再现"模拟器肥相噪案例"的码线台座肩)
+tgtPnProfile    = [1e2 -37; 1e3 -57; 1e4 -77; 30e3 -110; 1e6 -125; 10e6 -131];  % [旋钮]
+                           %   模拟器 PN 拟合点 [Hz, dBc/Hz], 可编辑。【形状 = 实测模板定量:
+                           %   台座/线 ≈ −25dBc@±2bin 且随偏移 −20dB/dec 衰减(99 实测
+                           %   100m-50dB 案例判读: 台座 +8~14dB 于谷, 线 +32~40dB 于谷),
+                           %   ±10~15bin 落底; 每 bin108.5Hz+Hann ENBW → 锚点换算
+                           %   L(300Hz)≈−47dBc/Hz 外推 −20dB/dec。约束: 近端肥(≤13.8kHz
+                           %   直接进多普勒带→码线台座, 8 线同形复制=实测"规律"特征) +
+                           %   ≥30kHz 砍瘦(chirp 内近似恒定→不抹距离维, 噪底平坦; 曾试
+                           %   平顶到 1M: 中场噪底峰峰 5.2dB, 实测无此, 定量证伪)。】
+                           %   真实模拟器手册值到位后直接替换近端锚点。
 
 % ---------- 8b. PLL 扫频跟踪误差（快斜坡下环路滞后 ∝ B/Ts → 肩膀随带宽抬高） ----------
 % 芯片公司口径：chirp 带宽增大 → 相位噪声对 RD 图的恶化增大。机理 = 环路有限
@@ -1037,11 +1060,34 @@ Xfull(1:floor(M_pn/2)+1) = Xf_pn;
 Xfull(M_pn:-1:M_pn-floor(M_pn/2)+1) = conj(Xf_pn(2:end));     % 共轭对称 → 实序列
 pnFull = real(ifft(Xfull)) * pnOn;            % 全帧相位噪声实现 (rad)
 
+% 目标回波路径的模拟器相噪实现(8c 块, 独立随机相位, 同款随机相位法):
+% 只乘目标回波相位 —— 雷达去斜时不对消(仅回波侧存在), 全额进差拍。
+tgtPnOn = double(enableTgtPnSim);
+if tgtPnOn
+    LfitT = interp1(log10(tgtPnProfile(:,1)), tgtPnProfile(:,2), log10(fAxC), 'linear');
+    loEndT = fAxC < tgtPnProfile(1,1);
+    LfitT(loEndT) = tgtPnProfile(1,2) - 20*(log10(tgtPnProfile(1,1)) - log10(fAxC(loEndT)));
+    hiEndT = fAxC > tgtPnProfile(end,1);
+    slpEndT = (tgtPnProfile(end,2)-tgtPnProfile(end-1,2)) / ...
+              (log10(tgtPnProfile(end,1))-log10(tgtPnProfile(end-1,1)));
+    LfitT(hiEndT) = tgtPnProfile(end,2) + slpEndT*(log10(fAxC(hiEndT)) - log10(tgtPnProfile(end,1)));
+    A_pnT = sqrt(fs2*M_pn*10.^(LfitT/10));
+    Xf_pnT = A_pnT .* exp(1j*2*pi*rand(numel(A_pnT),1));
+    Xf_pnT(1) = 0;  Xf_pnT(end) = 0;
+    XfullT = zeros(M_pn, 1);
+    XfullT(1:floor(M_pn/2)+1) = Xf_pnT;
+    XfullT(M_pn:-1:M_pn-floor(M_pn/2)+1) = conj(Xf_pnT(2:end));
+    pnFullTgt = real(ifft(XfullT));
+else
+    pnFullTgt = zeros(M_pn, 1);
+end
+
 % 本振(=发射)与各目标回波在帧网格上的 PN 取值表
 % （各天线对的 τ 差为 ns 级 ≪ PN 相干时间，按目标平均双程时延取值即可）
 tauPn  = (mean(Obj_t_R_all,1) + mean(Obj_r_R_all,1)).' / c;   % 各目标平均双程时延
 pnLO   = zeros(nChirps, nS2);                 % 本振/发射时刻 PN [chirp, 过采样快时间]
 pnEcho = zeros(nChirps, nS2, Obj_amount);     % 回波发射时刻 PN [chirp, 快时间, 目标]
+pnEchoTgt = zeros(nChirps, nS2, Obj_amount);  % 回波路径模拟器 PN(同栅格, 独立实现)
 gx     = (1:M_pn).';
 for n = 1:nChirps
     base = round((n-1)*Tc*fs2);               % 本 chirp 帧内起始样点（过采样）
@@ -1049,6 +1095,7 @@ for n = 1:nChirps
     for k = 1:Obj_amount
         idxE = max(1, base + (1:nS2) - tauPn(k)*fs2);
         pnEcho(n,:,k) = interp1(gx, pnFull, idxE, 'linear');
+        pnEchoTgt(n,:,k) = interp1(gx, pnFullTgt, idxE, 'linear');
     end
 end
 pnRms = sqrt(mean(pnFull.^2));
@@ -1255,10 +1302,12 @@ for n = 1:nChirps
         Rt_cur = gpuArray(Rt_cur);  Rr_cur = gpuArray(Rr_cur);
         dRw = gpuArray(dRw);  t4base = gpuArray(t2c);
         pnE4 = gpuArray(reshape(pnEcho(n,:,:), 1, 1, nS2, []));
+        pnE4T = gpuArray(reshape(pnEchoTgt(n,:,:), 1, 1, nS2, []));
         DDMA4 = reshape(gpuArray(DDMA_eff), nTX, 1, 1, 1);
     else
         t4base = t2c;
         pnE4 = reshape(pnEcho(n,:,:), 1, 1, nS2, []);
+        pnE4T = reshape(pnEchoTgt(n,:,:), 1, 1, nS2, []);
         DDMA4 = reshape(DDMA_eff, nTX, 1, 1, 1);
     end
     tau4  = (reshape(Rt_cur, nTX, 1, 1, []) + reshape(Rr_cur, 1, nRX, 1, []) ...
@@ -1267,7 +1316,8 @@ for n = 1:nChirps
     mask4 = (dt4 >= 0) & (dt4 < Ts + adcStartDelay);  % 本 chirp 扫频窗内才有差拍输出
     ph4   = 2*pi*( f_m*(t_m + reshape(t4base,1,1,nS2,1) - tau4) + 0.5*FreqSlope*dt4.^2 ...
              + nlOn*nonlinPh(dt4) ) ...
-             + pnOn*pnE4;                                            % 回波时刻相位噪声
+             + pnOn*pnE4 ...                                          % 回波时刻相位噪声(雷达侧)
+             + tgtPnOn*pnE4T;                                         % 回波路径模拟器 PN(不对消)
     ph4   = ph4 + reshape(linePhCoefG, nTX, nRX, 1, 1) ...
               .* (f_m - f_center + FreqSlope*dt4);                  % 馈线色散相位
     u4    = ((n-1)*f_step + FreqSlope*dt4 - min(0, f_step*(nChirps-1))) / B;  % 回波射频归一化位置; 平移到固定 span [0,1+cr](下跳频时 (n-1)f_step<0)
