@@ -28,7 +28,7 @@ dip = dMin>=4 & dMin<16;  shl = dMin>=16 & dMin<32;
 
 % 理论折叠位: 残余相噪 4sin² 峰在 f_hump=c/(4R), 折叠回多普勒带的位置
 Rm = (r0-1)*dims.DeltaR;  fHump = 3e8/(4*Rm);
-dopSpan = 1/(prm.Tc*prm.nChirps);                                   % 多普勒折叠周期(Hz)
+dopSpan = 1/(prm.Tc*nChirps);                                       % 多普勒折叠周期(Hz)
 fAl = mod(fHump + dopSpan/2, dopSpan) - dopSpan/2;                  % 折叠回 ±带内
 binAl = round(fAl / dopSpan * 256);
 fprintf('目标行 %d (%.1f m) | 空行 %d | 4sin²峰 %.0f kHz → 折叠位 %+.0f Hz ≈ 线旁 %d bin\n', ...
