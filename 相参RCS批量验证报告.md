@@ -616,3 +616,27 @@ pnTrack 白噪(1e-8 时代)+肥 profile 的伪墙, 数量级恰好≈模拟器 P
 从未关) → 看似"没有相噪"。真值 = 模拟器 PN 骑回波(去斜不对消), 已建模 enableTgtPnSim
 默认开。雷达 enablePhaseNoise 一直开, 近端标定锚点原样。两个世界: tgtPN 开=常规实测
 (窗形+一点泄露), 关=无相噪参考案例(纯 Hann)。lobeProbe.m 入册 docsrc。
+
+## 2026-11-08 追记(重大更正): PN 链回退前几周实测验证态 + 多普勒切面 15 项二分定案
+
+**用户关键澄清**: ①前几周的 PN 在 RD 图上的表现(泄漏线裙幅度值/环路裁剪形状/改 loopBW
+裁剪宽度随之变)经实测验证, 当时还没有 hopErr; ②多普勒切面此前从未验证过; ③实测强目标
+(含 50dBsm)多普勒切面 = 明显汉宁窗形 + 空子带交调泄露, 其它位置不该脏。
+**误判承认**: 2026-11-07 的 pnProfile 远端重标(100k -70.8→-108)建立在"目标行混叠地板须
+低于热噪"的未验证假设上, 把已验证标定改坏了, 且在其上叠加的双支路/Meas 模板一系列改动
+方向错误 —— 本轮全部回退(git 历史保留实验记录)。
+
+**15 项单关二分(50dBsm@100.16m, 判据=干净区中位−热噪)**: 基准(改动期态)+29.7dB 中
+**enableTgtPnSim 独占 +21dB**(回波相噪台座, 默认改关); 其余 14 项单关均≈0。空子带泄露
+来源: TgtPnSim(−7.5) + TxCoupling(−5.1) + PaIM3(−5.2) = "交调泄露"物理 ✓。
+
+**回退后复测**: A(前几周全态, pnTrack=1e-8) 脏度 +42.7 —— pnTrack 逐chirp白噪在 50dBsm
+行平铺 +23dB, 维持回 0; **B(旧 profile+单支路+pnTrack0, 现默认) 脏度 +19.5** = 旧 profile
+带外混叠的物理台座。
+**遗留一个待实测数据定夺的问题**: 旧 profile 的泄漏裙验证锁的是 L·τ_leak² 乘积(τ_leak
+独立标定), 不唯一锁定 profile 绝对肥度; 若实测 100m/50dBsm 切面的线高出噪底 ≥40dB 且
+切面干净 → 真实 profile 须更瘦(裙匹配由 τ_leak 承担), 按"切面干净"反标; 若实测线 ~+20dB
+→ +19.5 台座实测不可见, 旧 profile 保留。待用户给实测线-噪底差。
+**当前默认(B 态)**: 旧 pnProfile(100k=-70.8) + 单支路环路截断 + pnTrackCoef=0 +
+phaseErrStatic=false(逐chirp白噪旧行为) + hopErr 500Hz(起始频率误差, 用户确认必要) +
+enableTgtPnSim=false。dopClean/leakRow/lobeProbe/profFloor/flatChk 取证工具入册。
