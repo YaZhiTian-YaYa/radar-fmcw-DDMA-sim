@@ -83,6 +83,20 @@ accumCfg.cohFloorPow = median(accumCfg.cohPeakPow(:));
     zlN = [5*floor(min(nDb(1, :), [], 'omitnan')/5), 5*ceil((max(nDb(:))+5)/5)];  % 下限=本域距离bin0最小值(用户约定)
     zlC = [5*floor(min(cDb(1, :), [], 'omitnan')/5), 5*ceil((max(cDb(:))+5)/5)];  % 相参域同口径bin0最小值(用户约定)
 
+    % 目标标注(用户 2026-11-08): 各域排除近场泄漏区(前 10 距离 bin)后最强峰圈注位置与 Z 值
+    markN = struct('r', 0, 'd', 0, 'z', -Inf);
+    [~, ia] = max(nDb(11:end, :), [], 'all', 'omitnan');
+    [rn, dn] = ind2sub(size(nDb(11:end, :)), ia);
+    if nDb(rn+10, dn) > median(nDb(:), 'omitnan') + 8
+        markN = struct('r', rn+10, 'd', dn, 'z', nDb(rn+10, dn));
+    end
+    markC = struct('r', 0, 'd', 0, 'z', -Inf);
+    [~, ic] = max(cDb(11:end, :), [], 'all', 'omitnan');
+    [rc, dc] = ind2sub(size(cDb(11:end, :)), ic);
+    if cDb(rc+10, dc) > median(cDb(:), 'omitnan') + 8
+        markC = struct('r', rc+10, 'd', dc, 'z', cDb(rc+10, dc));
+    end
+
     accumCfg.figAccum = figure('Position', figPos, 'Name', 'fig26_JointAccum');
     tiledlayout(2, 4, 'TileSpacing', 'compact', 'Padding', 'compact');
     for v = 1 : 4
@@ -90,6 +104,14 @@ accumCfg.cohFloorPow = median(accumCfg.cohPeakPow(:));
         surf(dopGrid, rngGrid, nDb, 'EdgeColor', 'none');
         view(viewList(v, 1), viewList(v, 2));
         xlim([0 dims.dopBinNum-1]); zlim(zlN); colormap(jet);
+        if markN.r > 0
+            hold on;
+            plot3(markN.d-1, markN.r-1, min(markN.z, zlN(2)), 'ro', 'MarkerSize', 12, 'LineWidth', 2);
+            text(markN.d-1, markN.r-1, markN.z, ...
+                sprintf('  (%d,%d) %.1f dB', markN.r-1, markN.d-1, markN.z), ...
+                'Color', 'w', 'FontWeight', 'bold', 'FontSize', 9);
+            hold off;
+        end
         title(sprintf('非相参积累 %s', viewName{v}));
         xlabel('速度 bin(全带 0~511)'); ylabel('距离 bin'); zlabel('功率 (dB)');
         grid on;
@@ -99,6 +121,14 @@ accumCfg.cohFloorPow = median(accumCfg.cohPeakPow(:));
         surf(dopGrid, rngGrid, cDb, 'EdgeColor', 'none');
         view(viewList(v, 1), viewList(v, 2));
         xlim([0 dims.dopBinNum-1]); zlim(zlC); colormap(jet);
+        if markC.r > 0
+            hold on;
+            plot3(markC.d-1, markC.r-1, min(markC.z, zlC(2)), 'ro', 'MarkerSize', 12, 'LineWidth', 2);
+            text(markC.d-1, markC.r-1, markC.z, ...
+                sprintf('  (%d,%d) %.1f dB', markC.r-1, markC.d-1, markC.z), ...
+                'Color', 'w', 'FontWeight', 'bold', 'FontSize', 9);
+            hold off;
+        end
         title(sprintf('相参积累 %s', viewName{v}));
         xlabel('速度 bin(全带 0~511)'); ylabel('距离 bin'); zlabel('功率 (dB)');
         grid on;

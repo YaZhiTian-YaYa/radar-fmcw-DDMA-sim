@@ -30,6 +30,12 @@ function figRx = rxNonCoh_pipe(fftCfg, dims)
     [dopGrid, rngGrid] = meshgrid(0:dims.dopBinNum-1, 0:dims.rngUse-1);  % 距离 0 基(与 RD 图/gate_R 一致)
     zl = [5*floor(min(rxDb(1, :), [], 'omitnan')/5), 5*ceil((max(rxDb(:))+5)/5)];  % 下限=本域距离bin0最小值(用户约定)
 
+    % 目标标注(用户 2026-11-08): 排除近场泄漏区(前 10 距离 bin)后最强峰, 圈注位置与 Z 值
+    [~, imax] = max(rxDb(11:end, :), [], 'all', 'omitnan');
+    [rrT, ddT] = ind2sub(size(rxDb(11:end, :)), imax);
+    zPkT = rxDb(rrT+10, ddT);
+    doMark = zPkT > median(rxDb(:), 'omitnan') + 8;
+
     figRx = figure('Position', figPos, 'Name', 'fig25_RXNonCoh');
     tiledlayout(2, 4, 'TileSpacing', 'compact', 'Padding', 'compact');
     for row = 1:2                                  % 下行与上行同数据同视角(凑齐 2×4 图幅)
@@ -38,6 +44,14 @@ function figRx = rxNonCoh_pipe(fftCfg, dims)
             surf(dopGrid, rngGrid, rxDb, 'EdgeColor', 'none');
             view(viewList(v, 1), viewList(v, 2));
             xlim([0 dims.dopBinNum-1]); zlim(zl); colormap(jet);
+            if doMark
+                hold on;
+                plot3(ddT-1, rrT+9, min(zPkT, zl(2)), 'ro', 'MarkerSize', 12, 'LineWidth', 2);
+                text(ddT-1, rrT+9, zPkT, ...
+                    sprintf('  (%d,%d) %.1f dB', rrT+9, ddT-1, zPkT), ...
+                    'Color', 'w', 'FontWeight', 'bold', 'FontSize', 9);
+                hold off;
+            end
             title(sprintf('RX 非相参积累 %s', viewName{v}));
             xlabel('速度 bin(全带 0~511)'); ylabel('距离 bin'); zlabel('功率 (dB)');
             grid on;
