@@ -173,7 +173,7 @@ targets(1) = struct('gate_R', 5, 'gate_D', 0, 'azi', 0, 'ele', 0, 'rcsDb', -5, .
                     'rcsPhDeg', 0, 'vTan', 0, 'isCorner', 1);
 T = [ ...
 % ---- 目标表(每行一个目标; rcsPh 列 = 初相 deg, 默认 0) ----
- 100.16/dims.DeltaR   0  0   0   50   0  0  0];   % 100.16m = gate 143 整数bin(Hann 零点对齐, 距离剖面凹陷可见条件)
+ 300/dims.DeltaR   0  0   0   10   0  0  0];   %   100.16m/dims.DeltaR = gate 143 整数bin(Hann 零点对齐, 距离剖面凹陷可见条件)
 for k = 1:size(T, 1)
     vRadK = T(k,2)*dims.Vres;                          % 法向速度 (m/s)
     if T(k,7) == 0                                     % dir=0: Y 向行驶
