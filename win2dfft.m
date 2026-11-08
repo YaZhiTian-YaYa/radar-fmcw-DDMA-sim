@@ -41,20 +41,6 @@ function fftCfg = win2dfft(adcRawData, winType)
     % ---- dB 谱(全距离 bin 输出, 不做近直流丢弃 —— 实测链路不丢任何 bin) ----
     rdDB = 20*log10(abs(data_sva));           % dB 谱 [nV × nRX × nChirps]
 
-    % ---- 目标标注(用户 2026-11-08): 排除近场泄漏区(前 10 距离 bin)后取全图最强峰,
-    %      圈注其 RD 位置与 Z 值; RX 累积前 8 通道各有一个位置 → 只标最强通道那个。
-    %      峰须高出全图中位 +8dB 才标(纯噪声/仅角反标定图不乱标)。 ----
-    tgtMark = struct('row', 0, 'rx', 0, 'dop', 0, 'z', -Inf);
-    rdSub = rdDB(11:end, :, :);
-    if ~isempty(rdSub)
-        [~, imax] = max(rdSub, [], 'all', 'omitnan');
-        [rr, rxM, dd] = ind2sub(size(rdSub), imax);
-        zPk = rdSub(rr, rxM, dd);
-        if zPk > median(rdDB(:), 'omitnan') + 8
-            tgtMark.row = rr + 10;  tgtMark.rx = rxM;  tgtMark.dop = dd;  tgtMark.z = zPk;
-        end
-    end
-
     % ==================== FFT 域绘图(图14: 8通道RD / 图15: RD 3D曲面) ====================
     screenSize = get(0, 'ScreenSize');
     figW = screenSize(3) * 0.98;  figH = screenSize(4) * 0.80;
@@ -73,14 +59,6 @@ function fftCfg = win2dfft(adcRawData, winType)
         nexttile;
         imagesc(0:nChirps-1, 0:nV-1, squeeze(rdDB(:, i, :)));
         axis xy;
-        if tgtMark.rx == i                          % 目标圈注(最强通道, 用户口径)
-            hold on;
-            plot(tgtMark.dop-1, tgtMark.row-1, 'ro', 'MarkerSize', 14, 'LineWidth', 2);
-            text(tgtMark.dop-1, tgtMark.row-1, ...
-                sprintf('  (%d,%d) %.1f dB', tgtMark.row-1, tgtMark.dop-1, tgtMark.z), ...
-                'Color', 'w', 'FontWeight', 'bold', 'FontSize', 9);
-            hold off;
-        end
         title(sprintf('RX %d', i));
         xlabel('多普勒 bin');
         ylabel('距离 bin');
@@ -105,15 +83,6 @@ function fftCfg = win2dfft(adcRawData, winType)
             otherwise, view(0, 0);
         end
         zlim(cRange);                     % 与图14 相同的动态范围
-        if tgtMark.rx == i                % 目标峰注记(最强通道): 3D 空间文字
-            hold on;
-            plot3(tgtMark.row-1, tgtMark.dop-1, min(tgtMark.z, cRange(2)), ...
-                'ro', 'MarkerSize', 12, 'LineWidth', 2);
-            text(tgtMark.row-1, tgtMark.dop-1, tgtMark.z, ...
-                sprintf('  (%d,%d) %.1f dB', tgtMark.row-1, tgtMark.dop-1, tgtMark.z), ...
-                'Color', 'w', 'FontWeight', 'bold', 'FontSize', 9);
-            hold off;
-        end
         title(sprintf('RX %d', i));
         xlabel('距离 bin');
         ylabel('多普勒 bin');
