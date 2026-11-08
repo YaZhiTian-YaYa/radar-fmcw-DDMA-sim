@@ -173,7 +173,7 @@ targets(1) = struct('gate_R', 5, 'gate_D', 0, 'azi', 0, 'ele', 0, 'rcsDb', -5, .
                     'rcsPhDeg', 0, 'vTan', 0, 'isCorner', 1);
 T = [ ...
 % ---- 目标表(每行一个目标; rcsPh 列 = 初相 deg, 默认 0) ----
- 300/dims.DeltaR   0  0   0   10   0  0  0];   %   100.16m/dims.DeltaR = gate 143 整数bin(Hann 零点对齐, 距离剖面凹陷可见条件)
+ 100.16/dims.DeltaR-0.5  0  0   0   35   0  0  0];   %   100.16/dims.DeltaR = gate 143 整数bin(Hann 零点对齐, 距离剖面凹陷可见条件)
 for k = 1:size(T, 1)
     vRadK = T(k,2)*dims.Vres;                          % 法向速度 (m/s)
     if T(k,7) == 0                                     % dir=0: Y 向行驶
@@ -647,8 +647,8 @@ fprintf('图片已保存到 %s：%s（原尺寸渲染, PPT默认宽 %g cm, 覆�
         saveDir, strjoin(figList(:, 2), ' / '), outW_cm, toc(tExp));
 
 function overlayNoiseSurf(figH, floorPowCh)
-%OVERLAYNOISESURF RD 3D 曲面各 RX 子图叠加"噪底 vs 距离"红线(用户需求: 距离视图同时看噪声)
-%   前(多普勒0)后(多普勒末)两缘各画一条: 前缘粗红实线, 后缘细红虚线, 保证任意视角可见;
+%OVERLAYNOISESURF RD 3D 曲面各 RX 子图叠加"噪底 vs 距离"黑线(用户需求: 距离视图同时看噪声)
+%   前(多普勒0)后(多普勒末)两缘各画一条: 前缘粗黑实线, 后缘细黑虚线, 保证任意视角可见;
 %   floorPowCh 为 estNoiseFloor 的逐通道逐距离门噪底(线性), dB = 10lg(·), 与 rdDB 同源同标尺。
 if isempty(figH) || ~ishandle(figH), return; end
 nRx = size(floorPowCh, 2);
@@ -663,15 +663,15 @@ for ax = axs
     fDb = 10*log10(floorPowCh(:, rxI) + eps);
     yd  = ax.YLim;                       % 多普勒范围(取自曲面数据)
     hold(ax, 'on');
-    plot3(ax, x, zeros(1, nR), fDb, 'r-',  'LineWidth', 1.6);
-    plot3(ax, x, yd(2)*ones(1, nR), fDb, 'r--', 'LineWidth', 0.8);
+    plot3(ax, x, zeros(1, nR), fDb, 'k-',  'LineWidth', 1.6);
+    plot3(ax, x, yd(2)*ones(1, nR), fDb, 'k--', 'LineWidth', 0.8);
 end
 % 图例说明加在第一个子图
 axs = findall(figH, 'Type', 'axes');
 if ~isempty(axs)
     ax1 = axs(end);
     yl = ax1.YLim; zl = ax1.ZLim;
-    text(ax1, 0.02, 0.02, '红线 = 逐距离门噪底(中位)  距离bin→', 'Units', 'normalized', ...
-        'FontSize', 9, 'Color', [0.75 0.05 0.05], 'BackgroundColor', [1 1 1 0.6]);
+    text(ax1, 0.02, 0.02, '黑线 = 逐距离门噪底(中位)  距离bin→', 'Units', 'normalized', ...
+        'FontSize', 9, 'Color', [0 0 0], 'BackgroundColor', [1 1 1 0.6]);
 end
 end
