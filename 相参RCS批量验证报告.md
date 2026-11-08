@@ -640,3 +640,27 @@ pnTrack 白噪(1e-8 时代)+肥 profile 的伪墙, 数量级恰好≈模拟器 P
 **当前默认(B 态)**: 旧 pnProfile(100k=-70.8) + 单支路环路截断 + pnTrackCoef=0 +
 phaseErrStatic=false(逐chirp白噪旧行为) + hopErr 500Hz(起始频率误差, 用户确认必要) +
 enableTgtPnSim=false。dopClean/leakRow/lobeProbe/profFloor/flatChk 取证工具入册。
+
+## 2026-11-08 追记(多普勒切面闭环): 标尺错位定案 + 窗形达标
+
+**诊断通道事故声明**: 此前一批探针输出经 GBK/diary 管道出现重复/乱码/假零值(同一配置下
+"中位+19.5dB"与"杂散0个"并存), 15 项二分表等结论作废; 全部改用 ASCII 口径重测。
+
+**可信重测(ASCII, 50dBsm@100.16m, B态)**: 干净区中位 +8.4dB、max +38.9dB(=线−29dB)、
+103/176 bin 超限。**8 项单关(可信版)**: Ripple 关→max 塌 17.6dB(高刺类=带内起伏×步进频
+码幅误差→槽泄露, rippleShape 全带 1.3/2.7 周期在 2% 跳频跨度内 ~0.5dB 增益差×DDMA 码
+→−40dBc 级泄露, 机理自洽); PhaseNoise/TxCoupling/PaIM3 各 −2dB 级(宽台座合成); 其余≈0。
+
+**标尺错位定案(关键)**: 实测 100m-"50dB"案例线/噪底 = +32~34dB(RXnc 130~133 vs 98.7);
+仿真 50dBsm@100m = +67dB —— 热 35dB(两个"50dB"标定不同: 模拟器设置值≠雷达方程 dBsm)。
+−29~−45dBc 泄露类在 +32dB 线上不可见(实测干净窗形✓), 在 +67dB 上顶出(仿真脏)。
+
+**终态(线/噪底对齐 15dBsm@100.16m = +32dB)**: 干净区中位 **+0.7dB** | q75 +3.7 |
+max +9.9 | 超+6dB 11/176 —— **窗函数形状达标**, 空子带小泄露与实测凸起同量级。
+默认场景改为该标尺对照口径(15dBsm@100.16m)。
+
+**PN 参数终态**: pnProfile = [1k −49.25; 10k −65.84; 30k −95; 100k −112; 1M −125;
+10M −131; 100M −133](近端原值保留, 中段按"50dBsm@100m 折叠台座≤热噪+3dB"反标, 旧肥值
+100k=−70.8 在 +67dB 线上给 +20dB 台座=实测不可见故弃; 泄漏裙绝对幅度待芯片 L 数据收口,
+环路裁剪行为与肥瘦无关保留) + phaseErrStatic=true(静态开关偏差) + hopErr 500Hz +
+pnTrack 0 + tgtPN off。工具 chkAscii/ringChk/multiRow/chkState 入册 docsrc。
