@@ -203,6 +203,14 @@ phaseErrStatic   = false;   % [旋钮] 相位误差静态化(硬件一致口径,
                            %   多普勒行 —— 96 工程实证强目标 +17.6dB 假墙(17 项单关唯一
                            %   有效项), 本工程 1° 时净贡献 +1.0dB@50dBsm(2026-11-08 二分
                            %   定案, 静态化后该项归零)。
+% —— 移相器逐态实现误差(2026-11-08 新增, 空子带泄露的物理载体) ——
+% 16 个相位态各有【静态】实现偏差(逐 TX×态一次抽样, 手册典型 RMS 1~5°): 码序列带上
+% 与码同周期的误差 → 谱按 16 槽栅格量子化泄露到其它槽位 —— 空子带处的泄露峰即此
+% (占用槽位的那份被主线盖住=可见性选择效应)。与 phaseErr(逐TX常量/逐chirp白噪)
+% 都不同: 常量相位不破码正交, 白噪是连续平铺; 只有逐态误差出【槽位量化】泄露峰。
+enablePhaseStateErr = true;   % [开关] 移相器逐态实现误差(空子带泄露峰)
+phaseStateErrSigma_deg = 4;   % [旋钮] 逐态误差 RMS (deg)。空子带泄露峰电平的 directly
+                              %   控制量(泄露 ≈ 随 σ² 上升); 待移相器手册态精度收口。
 
 % ---------- 6. 天线/射频链带内幅度起伏（确定性 AM → R-FFT 展宽） ----------
 enableRipple = true;       % [开关] 带内幅度起伏
@@ -320,7 +328,7 @@ ttIsoMat = [ NaN  -47 -39 -52 -44 -49 -41 -53;   % [旋钮] 8×8 发发隔离度
              -48 -39 -51 -44 -37 -46 -42  NaN ];
 enablePaIM3 = true;        % [开关] PA 三阶交调（与发发耦合同块：无耦合时多码复合
                            %   不存在 → 无空子带交调信号；交调作用于耦合后的信号）
-paIM3_dBc   = -30;       % [旋钮] 双音 IM3 电平 (dBc)。【2026-11-08 修正】原 -4 为无出处占位(建链时取"典型-20~-5"最坏端), 雷达 PA 回退工作点典型 -25~-35, 取 -30; 待 PA 手册/实测回退点确认后收口。
+paIM3_dBc   = -20;       % [旋钮] 双音 IM3 电平 (dBc)。【2026-11-08 修正】原 -4 为无出处占位(建链时取"典型-20~-5"最坏端), 雷达 PA 回退工作点典型 -25~-35, 取 -20(典型区间中点, 空子带泄露可见口径); 待 PA 手册/实测回退点确认后收口。
                            %   空子带泄露 ≈ 耦合度 × 10^(paIM3_dBc/20), 线性: ±1 dB → 泄露 ±1 dB
 
 % ---------- 13. RX-RX 收收隔离泄漏（RXm 串入 RXn 前端, 线性叠加） ----------
@@ -785,6 +793,14 @@ phiIdeal  = -DDMA_P(:)*(0:nChirps-1);                 % 理想相位 (nTX × nCh
 quantOn   = double(enablePhaseQuant);                 % 开关（false=0 不量化）
 phiQuant  = (1-quantOn)*phiIdeal + quantOn*round(phiIdeal/phaseRes)*phaseRes;
 DDMA_phaseQ = deg2rad(phiQuant);                      % 量化后的确定性相位 (rad)
+% 逐态实现误差(开关区 enablePhaseStateErr 注释): 每 TX×16 态一次静态抽样, 误差随码
+% 周期复现 → 谱按 16 槽栅格量子化泄露到空子带(占用槽那份被主线盖住)。
+if enablePhaseStateErr
+    stIdx   = mod(round(phiIdeal/22.5), 16) + 1;              % 每 chirp 相位态索引 [nTX×nChirps]
+    stErrTab = deg2rad(phaseStateErrSigma_deg) * randn(nTX, 16);  % 每 TX×态静态偏差 (rad)
+    linIdx  = sub2ind([nTX, 16], repmat((1:nTX).', 1, nChirps), stIdx);
+    DDMA_phaseQ = DDMA_phaseQ + stErrTab(linIdx);
+end
 % 注意：随机误差不在这里预生成 —— 在下方 chirp 循环内逐 chirp 独立抽取，
 % 确保每个 TX × 每个 chirp 都是一次新的 N(0, σ²) 抽样。
 
